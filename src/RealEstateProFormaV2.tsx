@@ -35,6 +35,8 @@ import {
   Target,
   Users,
   Settings,
+  Menu,
+  X as CloseIcon,
 } from "lucide-react";
 import { calculateIRR, formatIRR } from "./utils/irrCalculator";
 import FormulaViewer from "./components/FormulaViewerSimple";
@@ -579,6 +581,9 @@ export default function App() {
   // API Key Modal state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(true);
+  
+  // Mobile menu state
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Format currency
   const formatCurrency = (value: number | null | undefined) => {
@@ -3099,7 +3104,28 @@ export default function App() {
       {/* Sticky Header */}
       <div className="sticky top-0 z-50 bg-gray-900 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          {/* Mobile Header */}
+          <div className="lg:hidden">
+            <div className="flex items-center justify-between">
+              <OnyxLogo height={32} className="hover:scale-105 transition-transform cursor-pointer" />
+              <button
+                onClick={() => setShowMobileMenu(!showMobileMenu)}
+                className="p-2 text-gray-100 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                {showMobileMenu ? <CloseIcon size={24} /> : <Menu size={24} />}
+              </button>
+            </div>
+            <input
+              type="text"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Project Name"
+              className="mt-3 w-full text-lg font-semibold text-gray-100 bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:border-yellow-500 focus:outline-none transition-colors"
+            />
+          </div>
+          
+          {/* Desktop Header */}
+          <div className="hidden lg:flex items-center justify-between">
             <div className="flex items-center gap-6">
               {/* Onyx Logo */}
               <OnyxLogo 
@@ -3195,6 +3221,62 @@ export default function App() {
               </button>
             </div>
           </div>
+          
+          {/* Mobile Menu */}
+          {showMobileMenu && (
+            <div className="lg:hidden mt-4 space-y-2 pb-4 border-t border-gray-800 pt-4">
+              <button
+                onClick={() => { setShowScenarioManager(true); setShowMobileMenu(false); }}
+                className="w-full px-4 py-2 bg-yellow-600 text-gray-900 rounded-lg hover:bg-yellow-500 font-medium flex items-center gap-2 transition-colors"
+              >
+                <Briefcase size={20} />
+                Scenarios
+              </button>
+              <button
+                onClick={() => { setShowScenarioComparison(true); setShowMobileMenu(false); }}
+                className="w-full px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
+                disabled={scenarios.length < 2}
+              >
+                <BarChartIcon size={20} />
+                Compare
+              </button>
+              <button
+                onClick={() => { setShowSaveDialog(true); setShowMobileMenu(false); }}
+                className="w-full px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
+              >
+                <Save size={20} />
+                Save
+              </button>
+              <button
+                onClick={() => { exportToCSV(); setShowMobileMenu(false); }}
+                className="w-full px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
+              >
+                <Download size={20} />
+                Export CSV
+              </button>
+              <button
+                onClick={() => { exportToPDF(); setShowMobileMenu(false); }}
+                className="w-full px-4 py-2 bg-yellow-600 text-gray-900 rounded-lg hover:bg-yellow-500 font-medium flex items-center gap-2 transition-colors"
+              >
+                <FileText size={20} />
+                Export PDF
+              </button>
+              <button
+                onClick={() => { setShowGoalSeek(true); setShowMobileMenu(false); }}
+                className="w-full px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
+              >
+                <Target size={20} />
+                Goal Seek
+              </button>
+              <button
+                onClick={() => { setShowApiKeyModal(true); setShowMobileMenu(false); }}
+                className="w-full px-3 py-2 bg-gray-800 text-gray-100 rounded-lg hover:bg-gray-700 border border-gray-700 flex items-center gap-2 transition-colors"
+              >
+                <Settings size={20} />
+                API Settings
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -3206,7 +3288,7 @@ export default function App() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Property Type
             </label>
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {(
                 Object.keys(propertyTypes) as Array<keyof typeof propertyTypes>
               ).map((key) => {
@@ -3329,7 +3411,7 @@ export default function App() {
               </button>
               {expandedSections.land && (
                 <div className="p-4 border-t space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {propertyType !== "cottonwoodHeights" ? (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -3504,7 +3586,7 @@ export default function App() {
                       <h3 className="font-medium text-gray-900 mb-3">
                         Parking Revenue
                       </h3>
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Monthly Rate
@@ -3557,7 +3639,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-3 gap-4 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-2">
                     <div className="text-center p-3 bg-gray-50 rounded-lg">
                       <p className="text-sm text-gray-600">FAR</p>
                       <p className="text-lg font-semibold">
@@ -3623,7 +3705,7 @@ export default function App() {
                       <h3 className="font-medium text-gray-900 mb-3">
                         Unit Configuration
                       </h3>
-                      <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Number of Units
@@ -3672,7 +3754,7 @@ export default function App() {
                     <h3 className="font-medium text-gray-900 mb-3">
                       Hard Costs
                     </h3>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Core & Shell ($/SF)
@@ -3740,7 +3822,7 @@ export default function App() {
                     </div>
                     {mode === "detailed" && (
                       <>
-                        <div className="grid grid-cols-2 gap-4 mt-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                           <div>
                             <div className="flex justify-between items-center mb-1">
                               <label className="block text-sm font-medium text-gray-700">
@@ -3784,7 +3866,7 @@ export default function App() {
                       <h3 className="font-medium text-gray-900 mb-3">
                         Soft Costs
                       </h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <div className="flex justify-between items-center mb-1">
                             <label className="block text-sm font-medium text-gray-700">
@@ -3874,7 +3956,7 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 mt-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div>
                           <div className="flex justify-between items-center mb-1">
                             <label className="block text-sm font-medium text-gray-700">
@@ -3977,7 +4059,7 @@ export default function App() {
                         <span className="text-sm text-gray-600">Enabled</span>
                       </label>
                     </div>
-                    <div className={`grid grid-cols-2 gap-4 ${!constructionLoan.enabled ? 'opacity-50' : ''}`}>
+                    <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!constructionLoan.enabled ? 'opacity-50' : ''}`}>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
                           LTC (%)
@@ -4075,7 +4157,7 @@ export default function App() {
                           <span className="text-sm text-gray-600">Enabled</span>
                         </label>
                       </div>
-                      <div className={`grid grid-cols-2 gap-4 ${!permanentLoan.enabled ? 'opacity-50' : ''}`}>
+                      <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!permanentLoan.enabled ? 'opacity-50' : ''}`}>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
                             LTV (%)
@@ -4116,7 +4198,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-3 gap-4 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-2">
                     {propertyType === "forSale" ? (
                       <>
                         <div className="text-center p-3 bg-yellow-50 rounded-lg">
@@ -4338,7 +4420,7 @@ export default function App() {
                           ))}
                         </div>
                         <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                          <div className="grid grid-cols-3 gap-3 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                             <div>
                               <span className="text-gray-600">
                                 Total Units:
@@ -4391,7 +4473,7 @@ export default function App() {
                       <h3 className="font-medium text-gray-900 mb-3">
                         Operating Parameters
                       </h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             {propertyType === "apartment"
@@ -4468,7 +4550,7 @@ export default function App() {
                   {/* For-Sale Specific */}
                   {propertyType === "forSale" && (
                     <>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Average Unit Size (SF)
@@ -4571,7 +4653,7 @@ export default function App() {
                                   </button>
                                 )}
                               </div>
-                              <div className="grid grid-cols-3 gap-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                                 <div>
                                   <label className="block text-xs font-medium text-gray-600 mb-1">
                                     Units
@@ -4664,7 +4746,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.office.enabled && (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
                                 <input
@@ -4723,7 +4805,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.retail.enabled && (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
                                 <input
@@ -4782,7 +4864,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.grocery.enabled && (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
                                 <input
@@ -4846,7 +4928,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.townhomes.enabled && (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
                                 <input
@@ -4905,7 +4987,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.affordable.enabled && (
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
                                 <input
@@ -4969,7 +5051,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.tif.enabled && (
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                   Capture Rate (%)
@@ -5004,7 +5086,7 @@ export default function App() {
                         {/* Public Financing */}
                         <div className="p-4 border rounded-lg">
                           <h4 className="font-medium mb-3">Public Financing Sources</h4>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">Tax-Exempt Bonds</label>
                               <input
@@ -5781,7 +5863,7 @@ export default function App() {
                     <p className="text-sm text-gray-600 mb-3">
                       Rent uses normal distribution, construction costs use uniform distribution
                     </p>
-                    <div className="grid grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Iterations
@@ -5853,7 +5935,7 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div className="text-center p-3 bg-gray-50 rounded-lg">
                       <p className="text-sm text-gray-600">Mean IRR</p>
                       <p className="text-lg font-semibold">
@@ -5882,7 +5964,7 @@ export default function App() {
                   
                   {/* Additional Monte Carlo Metrics */}
                   <div className="mb-4 p-4 bg-yellow-50 rounded-lg">
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                       <div>
                         <p className="text-sm text-gray-700">Probability of IRR &gt; 15%</p>
                         <p className="text-lg font-bold text-yellow-600">
@@ -6158,7 +6240,7 @@ export default function App() {
                         {scenario.description && (
                           <p className="text-gray-600 mt-1">{scenario.description}</p>
                         )}
-                        <div className="mt-2 grid grid-cols-3 gap-4 text-sm">
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                           <div>
                             <span className="text-gray-500">IRR:</span>{" "}
                             <span className="font-medium">{scenario.metrics.irr}%</span>
@@ -6514,7 +6596,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-gray-900 border-t border-gray-800 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-gray-400 text-sm">
               <span>© 2024 Onyx Development</span>
               <span className="text-gray-600">|</span>
