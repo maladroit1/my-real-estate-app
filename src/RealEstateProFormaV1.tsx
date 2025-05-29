@@ -53,6 +53,8 @@ interface CashFlowData {
   salePrice?: number;
   exitProceeds?: number;
   refinanceProceeds?: number;
+  sponsorFees?: number;
+  dispositionFee?: number;
 }
 
 // Scenario Management Types
@@ -287,6 +289,27 @@ export default function App() {
     { minIRR: 15, maxIRR: 100, lpShare: 60, gpShare: 40 },
   ]);
 
+  // Add compensation type toggle
+  const [compensationType, setCompensationType] = useState<'promote' | 'sponsorFee'>('promote');
+
+  // Add sponsor fees state
+  const [sponsorFees, setSponsorFees] = useState({
+    // One-time fees
+    acquisitionFee: 1.5,              // % of total project cost
+    developmentFee: 4,                // % of total project cost
+    constructionManagementFee: 3,     // % of hard costs
+    dispositionFee: 1.0,              // % of gross sale price
+    
+    // Ongoing fees
+    assetManagementFee: 1.5,          // % of effective gross revenue annually
+    propertyManagementFee: 0,         // % of EGR (optional, for apartments)
+    
+    // Performance-linked structure
+    feeStructureType: 'standard' as 'standard' | 'performance',
+    performanceHurdle: 8,             // % preferred return before full fees
+    reducedFeePercent: 50,            // % of standard fees if below hurdle
+  });
+
   // Operating Assumptions
   const [operatingAssumptions, setOperatingAssumptions] = useState({
     rentPSF: 35,
@@ -451,6 +474,13 @@ export default function App() {
   
   // IRR Breakdown Modal
   const [showIRRBreakdown, setShowIRRBreakdown] = useState(false);
+  
+  // Fee Comparison Toggle
+  const [showFeeComparison, setShowFeeComparison] = useState(false);
+  const [feeComparisonData, setFeeComparisonData] = useState<{
+    promote: any;
+    sponsorFee: any;
+  } | null>(null);
 
   // Validation State
   const [validationWarnings, setValidationWarnings] = useState<any[]>([]);
@@ -603,8 +633,47 @@ export default function App() {
       const loanFees =
         (constructionLoanAmount * constructionLoan.originationFee) / 100;
 
-      const totalProjectCost =
+      let totalProjectCost =
         calculateTotalCost.total + constructionInterest + loanFees;
+      
+      // Add sponsor fee calculations
+      let totalSponsorFees = 0;
+      let acquisitionFeeAmount = 0;
+      let developmentFeeAmount = 0;
+      let constructionMgmtFeeAmount = 0;
+      
+      if (compensationType === 'sponsorFee') {
+        // Calculate one-time fees
+        acquisitionFeeAmount = calculateTotalCost.total * sponsorFees.acquisitionFee / 100;
+        developmentFeeAmount = calculateTotalCost.total * sponsorFees.developmentFee / 100;
+        constructionMgmtFeeAmount = calculateTotalCost.hardCost * sponsorFees.constructionManagementFee / 100;
+        
+        totalSponsorFees = acquisitionFeeAmount + developmentFeeAmount + constructionMgmtFeeAmount;
+        
+        // Adjust total project cost to include fees
+        totalProjectCost = totalProjectCost + totalSponsorFees;
+        const equityRequiredWithFees = totalProjectCost - constructionLoanAmount;
+        
+        return {
+          constructionLoanAmount,
+          constructionInterest,
+          loanFees,
+          totalProjectCost,
+          equityRequired: equityRequiredWithFees,
+          lpEquity: equityRequiredWithFees, // 100% LP when using sponsor fees
+          gpEquity: 0, // GP compensated through fees, not equity
+          gpCoinvest: 0,
+          totalGPCommitment: 0,
+          avgOutstandingBalance,
+          constructionMonths,
+          totalSponsorFees,
+          acquisitionFeeAmount,
+          developmentFeeAmount,
+          constructionMgmtFeeAmount,
+        };
+      }
+      
+      // Existing promote calculations
       const equityRequired = totalProjectCost - constructionLoanAmount;
 
       const gpCoinvestAmount =
@@ -625,6 +694,10 @@ export default function App() {
         totalGPCommitment: gpPromoteEquity + gpCoinvestAmount,
         avgOutstandingBalance,
         constructionMonths,
+        totalSponsorFees: 0,
+        acquisitionFeeAmount: 0,
+        developmentFeeAmount: 0,
+        constructionMgmtFeeAmount: 0,
       };
     } catch (e) {
       console.error("Error calculating financing:", e);
@@ -640,9 +713,13 @@ export default function App() {
         totalGPCommitment: 0,
         avgOutstandingBalance: 0,
         constructionMonths: 0,
+        totalSponsorFees: 0,
+        acquisitionFeeAmount: 0,
+        developmentFeeAmount: 0,
+        constructionMgmtFeeAmount: 0,
       };
     }
-  }, [calculateTotalCost, constructionLoan, equityStructure, timeline]);
+  }, [calculateTotalCost, constructionLoan, equityStructure, timeline, compensationType, sponsorFees]);
 
   // Calculate NOI and Cash Flows
   const calculateCashFlows = useMemo(() => {
@@ -925,7 +1002,30 @@ export default function App() {
                 (rate / (1 - Math.pow(1 + rate, -permanentLoan.amortization)));
         }
 
-        let cashFlow = noi - annualDebtService;
+        // Calculate sponsor fees if applicable
+        let annualSponsorFees = 0;
+        if (compensationType === 'sponsorFee') {
+          // Asset management fee
+          const assetMgmtFee = totalRevenue * sponsorFees.assetManagementFee / 100;
+          
+          // Property management fee (for apartments)
+          const propMgmtFee = propertyType === 'apartment' ? 
+            totalRevenue * sponsorFees.propertyManagementFee / 100 : 0;
+          
+          // Apply performance adjustment if applicable
+          if (sponsorFees.feeStructureType === 'performance') {
+            const currentReturn = (noi - annualDebtService) / calculateFinancing.equityRequired * 100;
+            if (currentReturn < sponsorFees.performanceHurdle) {
+              annualSponsorFees = (assetMgmtFee + propMgmtFee) * sponsorFees.reducedFeePercent / 100;
+            } else {
+              annualSponsorFees = assetMgmtFee + propMgmtFee;
+            }
+          } else {
+            annualSponsorFees = assetMgmtFee + propMgmtFee;
+          }
+        }
+
+        let cashFlow = noi - annualDebtService - annualSponsorFees;
         
         // Add refinance proceeds in Year 1
         let refinanceProceeds = 0;
@@ -945,6 +1045,7 @@ export default function App() {
           operatingExpenses,
           noi,
           debtService: annualDebtService,
+          sponsorFees: annualSponsorFees,
           cashFlow,
           cumulativeCashFlow:
             (cashFlows[year - 1]?.cumulativeCashFlow || 0) + cashFlow,
@@ -975,12 +1076,19 @@ export default function App() {
               (Math.pow(1 + rate, permanentLoan.amortization) - 1));
       }
 
-      const exitProceeds = salePrice - exitCosts - remainingBalance;
+      // Calculate disposition fee if applicable
+      let dispositionFeeAmount = 0;
+      if (compensationType === 'sponsorFee') {
+        dispositionFeeAmount = salePrice * sponsorFees.dispositionFee / 100;
+      }
+      
+      const exitProceeds = salePrice - exitCosts - remainingBalance - dispositionFeeAmount;
 
       if (cashFlows[operatingAssumptions.holdPeriod]) {
         cashFlows[operatingAssumptions.holdPeriod].cashFlow += exitProceeds;
         cashFlows[operatingAssumptions.holdPeriod].salePrice = salePrice;
         cashFlows[operatingAssumptions.holdPeriod].exitProceeds = exitProceeds;
+        cashFlows[operatingAssumptions.holdPeriod].dispositionFee = dispositionFeeAmount;
       }
 
       return { cashFlows, permanentLoanAmount, year1NOI };
@@ -1003,6 +1111,8 @@ export default function App() {
     salesPhasing,
     timeline,
     constructionLoan,
+    compensationType,
+    sponsorFees,
   ]);
 
   // Update operating assumptions when property type changes
@@ -1245,10 +1355,84 @@ export default function App() {
           lpIRR: "0.00",
           gpIRR: "0.00",
           paybackPeriod: 0,
+          compensationType: compensationType,
+          totalSponsorCompensation: 0,
+          feeAsPercentOfEquity: "0.00",
+          feeDragOnReturns: "0.00",
         };
       }
 
       const { cashFlows } = calculateCashFlows;
+      
+      // Handle sponsor fee compensation model
+      if (compensationType === 'sponsorFee') {
+        // Calculate LP returns (all cash flows minus fees)
+        const lpCashFlows = cashFlows.map(cf => cf.cashFlow);
+        const lpIRRResult = calculateIRR(lpCashFlows);
+        const lpIRR = lpIRRResult.isValid ? lpIRRResult.irr * 100 : 0;
+        
+        // Calculate total LP distributions (exclude initial investment)
+        const totalLPDistributions = lpCashFlows
+          .slice(1)
+          .reduce((sum, cf) => sum + Math.max(0, cf), 0);
+        const initialEquity = Math.abs(lpCashFlows[0] || 0);
+        const lpEquityMultiple = initialEquity > 0 ? totalLPDistributions / initialEquity : 0;
+        
+        // Calculate GP fee income
+        const gpFeeCashFlows = [
+          0, // No equity investment from GP
+          ...cashFlows.slice(1).map(cf => cf.sponsorFees || 0)
+        ];
+        
+        // Add disposition fee to final year
+        if (cashFlows.length > 0) {
+          const lastIndex = cashFlows.length - 1;
+          if (cashFlows[lastIndex].dispositionFee) {
+            gpFeeCashFlows[lastIndex] += cashFlows[lastIndex].dispositionFee || 0;
+          }
+        }
+        
+        // Calculate total sponsor compensation
+        const totalFeeIncome = calculateFinancing.totalSponsorFees + 
+          gpFeeCashFlows.slice(1).reduce((sum, fee) => sum + fee, 0);
+        
+        // Calculate IRR without fees for comparison
+        const cashFlowsWithoutFees = cashFlows.map((cf, index) => {
+          if (index === 0) return cf.cashFlow;
+          return cf.cashFlow + (cf.sponsorFees || 0) + (cf.dispositionFee || 0);
+        });
+        const irrWithoutFeesResult = calculateIRR(cashFlowsWithoutFees);
+        const irrWithoutFees = irrWithoutFeesResult.isValid ? irrWithoutFeesResult.irr * 100 : 0;
+        
+        // Calculate payback period
+        let paybackPeriod = 0;
+        let cumulativeReturn = 0;
+        for (let i = 1; i < cashFlows.length; i++) {
+          cumulativeReturn += cashFlows[i].cashFlow - (cashFlows[i].exitProceeds || 0);
+          if (cumulativeReturn >= initialEquity) {
+            paybackPeriod = i;
+            break;
+          }
+        }
+        
+        return {
+          irr: formatIRR(lpIRRResult),
+          equityMultiple: isFinite(lpEquityMultiple) ? lpEquityMultiple.toFixed(2) : "0.00",
+          totalReturn: totalLPDistributions,
+          lpReturn: totalLPDistributions,
+          gpReturn: totalFeeIncome,
+          lpIRR: formatIRR(lpIRRResult),
+          gpIRR: 'N/A', // GP has no equity investment
+          paybackPeriod: paybackPeriod,
+          compensationType: 'sponsorFee',
+          totalSponsorCompensation: totalFeeIncome,
+          feeAsPercentOfEquity: initialEquity > 0 ? (totalFeeIncome / initialEquity * 100).toFixed(2) : "0.00",
+          feeDragOnReturns: (irrWithoutFees - lpIRR).toFixed(2),
+          irrMessage: lpIRRResult.message,
+        };
+      }
+      
+      // Existing promote calculations
       const cashFlowArray = cashFlows.map((cf) => cf.cashFlow);
 
       // Use the improved IRR calculator
@@ -1352,6 +1536,10 @@ export default function App() {
         gpIRR: isFinite(gpIRR) ? gpIRR.toFixed(2) : "0.00",
         paybackPeriod: paybackPeriod,
         irrMessage: irrResult.message,
+        compensationType: 'promote',
+        totalSponsorCompensation: distributions.gp,
+        feeAsPercentOfEquity: "0.00", // Not applicable for promote
+        feeDragOnReturns: "0.00", // Not applicable for promote
       };
     } catch (e) {
       console.error("Error calculating returns:", e);
@@ -1364,6 +1552,10 @@ export default function App() {
         lpIRR: "0.00",
         gpIRR: "0.00",
         paybackPeriod: 0,
+        compensationType: compensationType,
+        totalSponsorCompensation: 0,
+        feeAsPercentOfEquity: "0.00",
+        feeDragOnReturns: "0.00",
       };
     }
   }, [
@@ -1371,6 +1563,8 @@ export default function App() {
     waterfallTiers,
     equityStructure,
     operatingAssumptions.holdPeriod,
+    compensationType,
+    calculateFinancing,
   ]);
 
   // Calculate Additional Metrics
@@ -1528,6 +1722,10 @@ export default function App() {
       gpIRR: calculateReturns?.gpIRR || "0.00",
       avgCashOnCash: avgCashOnCash,
       paybackPeriod: calculateReturns?.paybackPeriod || 0,
+      compensationType: calculateReturns?.compensationType || 'promote',
+      totalSponsorCompensation: calculateReturns?.totalSponsorCompensation || 0,
+      feeAsPercentOfEquity: calculateReturns?.feeAsPercentOfEquity || "0.00",
+      feeDragOnReturns: calculateReturns?.feeDragOnReturns || "0.00",
     };
   }, [calculateReturns, avgCashOnCash]);
 
@@ -1547,6 +1745,64 @@ export default function App() {
       setValidationWarnings(prev => prev.filter(w => w.field !== "Project IRR"));
     }
   }, [combinedReturns.irr]);
+
+  // Calculate Fee Comparison Scenarios
+  const calculateComparisonScenarios = useCallback(() => {
+    // Save current compensation type
+    const currentType = compensationType;
+    
+    // Calculate promote scenario
+    const promoteScenario = {
+      irr: calculateReturns?.compensationType === 'promote' ? 
+        calculateReturns.irr : 
+        (parseFloat(calculateReturns?.lpIRR || "0") + parseFloat(calculateReturns?.feeDragOnReturns || "0")).toFixed(2),
+      lpIRR: calculateReturns?.compensationType === 'promote' ? 
+        calculateReturns.lpIRR : 
+        (parseFloat(calculateReturns?.lpIRR || "0") + parseFloat(calculateReturns?.feeDragOnReturns || "0")).toFixed(2),
+      gpReturn: calculateReturns?.compensationType === 'promote' ? 
+        calculateReturns.gpReturn : 
+        calculateFinancing.equityRequired * (equityStructure.gpEquity / 100) * 0.2, // Estimate 20% promote
+      lpReturn: calculateReturns?.compensationType === 'promote' ? 
+        calculateReturns.lpReturn : 
+        calculateReturns?.totalReturn || 0,
+      totalCompensation: calculateReturns?.compensationType === 'promote' ? 
+        calculateReturns.gpReturn : 
+        calculateFinancing.equityRequired * (equityStructure.gpEquity / 100) * 0.2,
+      equityMultiple: calculateReturns?.compensationType === 'promote' ? 
+        calculateReturns.equityMultiple : 
+        ((calculateReturns?.totalReturn || 0) / calculateFinancing.equityRequired).toFixed(2),
+    };
+    
+    // Calculate sponsor fee scenario
+    const sponsorFeeScenario = {
+      irr: calculateReturns?.compensationType === 'sponsorFee' ? 
+        calculateReturns.irr : 
+        (parseFloat(calculateReturns?.irr || "0") - 2.0).toFixed(2), // Estimate 2% fee drag
+      lpIRR: calculateReturns?.compensationType === 'sponsorFee' ? 
+        calculateReturns.lpIRR : 
+        (parseFloat(calculateReturns?.lpIRR || "0") - 2.0).toFixed(2),
+      gpReturn: calculateReturns?.compensationType === 'sponsorFee' ? 
+        calculateReturns.totalSponsorCompensation : 
+        calculateFinancing.totalSponsorFees + 
+          (calculateCashFlows?.year1NOI || 0) * sponsorFees.assetManagementFee / 100 * operatingAssumptions.holdPeriod,
+      lpReturn: calculateReturns?.compensationType === 'sponsorFee' ? 
+        calculateReturns.lpReturn : 
+        calculateReturns?.totalReturn || 0,
+      totalCompensation: calculateReturns?.compensationType === 'sponsorFee' ? 
+        calculateReturns.totalSponsorCompensation : 
+        calculateFinancing.totalSponsorFees + 
+          (calculateCashFlows?.year1NOI || 0) * sponsorFees.assetManagementFee / 100 * operatingAssumptions.holdPeriod,
+      equityMultiple: calculateReturns?.compensationType === 'sponsorFee' ? 
+        calculateReturns.equityMultiple : 
+        ((calculateReturns?.totalReturn || 0) / (calculateFinancing.equityRequired + calculateFinancing.totalSponsorFees)).toFixed(2),
+      feeDrag: calculateReturns?.feeDragOnReturns || "2.00",
+    };
+    
+    setFeeComparisonData({
+      promote: promoteScenario,
+      sponsorFee: sponsorFeeScenario
+    });
+  }, [compensationType, calculateReturns, calculateFinancing, equityStructure, sponsorFees, operatingAssumptions.holdPeriod, calculateCashFlows]);
 
   // Calculate Sensitivity Analysis
   const calculateSensitivityAnalysis = useMemo(() => {
@@ -2538,7 +2794,7 @@ ${
         loadScenario(activeScenarioId);
       }
     }
-  }, [activeScenarioId, scenarios.length]);
+  }, [activeScenarioId]); // Only reload when active scenario changes, not when scenarios array updates
 
   // Auto-save functionality
   useEffect(() => {
@@ -3374,6 +3630,323 @@ ${
               )}
             </div>
 
+            {/* Equity Structure & Compensation */}
+            <div className="bg-white rounded-lg shadow-sm">
+              <button
+                onClick={() => toggleSection("equity")}
+                className="w-full p-4 flex justify-between items-center hover:bg-gray-50"
+              >
+                <h2 className="text-xl font-semibold">Equity Structure & Compensation</h2>
+                {expandedSections.equity ? (
+                  <ChevronDown />
+                ) : (
+                  <ChevronRight />
+                )}
+              </button>
+              {expandedSections.equity && (
+                <div className="p-4 border-t space-y-4">
+                  {/* Compensation Structure Toggle */}
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      GP Compensation Structure
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCompensationType('promote')}
+                        className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                          compensationType === 'promote'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="text-sm">Promote/Waterfall</div>
+                        <div className="text-xs opacity-80 mt-1">Performance-based carry</div>
+                      </button>
+                      <button
+                        onClick={() => setCompensationType('sponsorFee')}
+                        className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                          compensationType === 'sponsorFee'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="text-sm">Sponsor Fees</div>
+                        <div className="text-xs opacity-80 mt-1">Asset-based fees</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Show appropriate inputs based on selection */}
+                  {compensationType === 'promote' ? (
+                    <div className="space-y-4">
+                      <h3 className="font-medium text-gray-900">Equity Split & Waterfall</h3>
+                      
+                      {/* Equity Split */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            LP Equity (%)
+                          </label>
+                          <input
+                            type="number"
+                            value={equityStructure.lpEquity}
+                            onChange={(e) =>
+                              setEquityStructure({
+                                ...equityStructure,
+                                lpEquity: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            GP Equity (%)
+                          </label>
+                          <input
+                            type="number"
+                            value={equityStructure.gpEquity}
+                            onChange={(e) =>
+                              setEquityStructure({
+                                ...equityStructure,
+                                gpEquity: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Preferred Return */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Preferred Return (%)
+                        </label>
+                        <input
+                          type="number"
+                          value={equityStructure.preferredReturn}
+                          onChange={(e) =>
+                            setEquityStructure({
+                              ...equityStructure,
+                              preferredReturn: Number(e.target.value),
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* GP Co-invest */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          GP Co-invest (% of GP share)
+                        </label>
+                        <input
+                          type="number"
+                          value={equityStructure.gpCoinvest}
+                          onChange={(e) =>
+                            setEquityStructure({
+                              ...equityStructure,
+                              gpCoinvest: Number(e.target.value),
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* Catch-up */}
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="catchUp"
+                          checked={equityStructure.catchUp}
+                          onChange={(e) =>
+                            setEquityStructure({
+                              ...equityStructure,
+                              catchUp: e.target.checked,
+                            })
+                          }
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="catchUp" className="text-sm font-medium text-gray-700">
+                          Include GP Catch-up
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <h3 className="font-medium text-gray-900">Sponsor Fee Structure</h3>
+                      
+                      {/* Fee Type Selection */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Fee Structure Type</label>
+                        <select
+                          value={sponsorFees.feeStructureType}
+                          onChange={(e) => setSponsorFees({...sponsorFees, feeStructureType: e.target.value as 'standard' | 'performance'})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        >
+                          <option value="standard">Standard Fees</option>
+                          <option value="performance">Performance-Linked Fees</option>
+                        </select>
+                      </div>
+                      
+                      {/* One-Time Fees */}
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">One-Time Fees</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Acquisition Fee (% of Total Cost)
+                            </label>
+                            <input
+                              type="number"
+                              value={sponsorFees.acquisitionFee}
+                              onChange={(e) => setSponsorFees({...sponsorFees, acquisitionFee: Number(e.target.value)})}
+                              step="0.25"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Development Fee (% of Total Cost)
+                            </label>
+                            <input
+                              type="number"
+                              value={sponsorFees.developmentFee}
+                              onChange={(e) => setSponsorFees({...sponsorFees, developmentFee: Number(e.target.value)})}
+                              step="0.25"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Construction Mgmt (% of Hard Costs)
+                            </label>
+                            <input
+                              type="number"
+                              value={sponsorFees.constructionManagementFee}
+                              onChange={(e) => setSponsorFees({...sponsorFees, constructionManagementFee: Number(e.target.value)})}
+                              step="0.25"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Disposition Fee (% of Sale Price)
+                            </label>
+                            <input
+                              type="number"
+                              value={sponsorFees.dispositionFee}
+                              onChange={(e) => setSponsorFees({...sponsorFees, dispositionFee: Number(e.target.value)})}
+                              step="0.25"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Ongoing Fees */}
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">Annual Fees</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Asset Management (% of Revenue)
+                            </label>
+                            <input
+                              type="number"
+                              value={sponsorFees.assetManagementFee}
+                              onChange={(e) => setSponsorFees({...sponsorFees, assetManagementFee: Number(e.target.value)})}
+                              step="0.25"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                          </div>
+                          {propertyType === 'apartment' && (
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Property Management (% of Revenue)
+                              </label>
+                              <input
+                                type="number"
+                                value={sponsorFees.propertyManagementFee}
+                                onChange={(e) => setSponsorFees({...sponsorFees, propertyManagementFee: Number(e.target.value)})}
+                                step="0.25"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Performance Hurdles */}
+                      {sponsorFees.feeStructureType === 'performance' && (
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">Performance Parameters</h4>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Hurdle Rate (%)
+                              </label>
+                              <input
+                                type="number"
+                                value={sponsorFees.performanceHurdle}
+                                onChange={(e) => setSponsorFees({...sponsorFees, performanceHurdle: Number(e.target.value)})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Reduced Fee % (Below Hurdle)
+                              </label>
+                              <input
+                                type="number"
+                                value={sponsorFees.reducedFeePercent}
+                                onChange={(e) => setSponsorFees({...sponsorFees, reducedFeePercent: Number(e.target.value)})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Fee Summary */}
+                      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                        <h4 className="text-sm font-medium text-gray-900 mb-2">Estimated Fee Summary</h4>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Total Upfront Fees:</span>
+                            <span className="font-medium">
+                              {formatCurrency(
+                                (calculateTotalCost.total * (sponsorFees.acquisitionFee + sponsorFees.developmentFee) / 100) +
+                                (calculateTotalCost.hardCost * sponsorFees.constructionManagementFee / 100)
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Annual Asset Mgmt:</span>
+                            <span className="font-medium">
+                              ~{formatCurrency(
+                                calculateCashFlows?.year1NOI ? 
+                                calculateCashFlows.year1NOI * (100 / (100 - operatingAssumptions.vacancy)) * sponsorFees.assetManagementFee / 100 
+                                : 0
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Total Est. Fees:</span>
+                            <span className="font-medium text-blue-600">
+                              {calculateReturns?.totalSponsorCompensation ? 
+                                formatCurrency(calculateReturns.totalSponsorCompensation) : 
+                                'Calculating...'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Operating Assumptions */}
             <div className="bg-white rounded-lg shadow-sm">
               <button
@@ -4052,8 +4625,298 @@ ${
                 )}
               </div>
             </div>
+
+            {/* Partnership Returns */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-xl font-semibold mb-4">
+                {compensationType === 'promote' ? 'Partnership Returns' : 'Sponsor Fee Analysis'}
+              </h2>
+              
+              {compensationType === 'promote' ? (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                    <span className="text-gray-700">LP Return</span>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-blue-600">
+                        {combinedReturns.lpIRR}%
+                      </span>
+                      <div className="text-sm text-gray-600">
+                        {formatCurrency(combinedReturns.lpReturn)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                    <span className="text-gray-700">GP Return</span>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-green-600">
+                        {combinedReturns.gpIRR}%
+                      </span>
+                      <div className="text-sm text-gray-600">
+                        {formatCurrency(combinedReturns.gpReturn)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-t pt-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Preferred Return</span>
+                      <span>{equityStructure.preferredReturn}%</span>
+                    </div>
+                    <div className="flex justify-between text-sm mt-2">
+                      <span className="text-gray-600">GP Promote</span>
+                      <span>
+                        {((combinedReturns.gpReturn / combinedReturns.totalReturn) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Fee Impact Analysis */}
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-medium text-gray-900 mb-3">Fee Impact on Returns</h3>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">LP IRR (after fees)</span>
+                        <span className="font-semibold">{combinedReturns.lpIRR}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">IRR without fees</span>
+                        <span className="font-semibold">
+                          {(parseFloat(combinedReturns.lpIRR) + parseFloat(combinedReturns.feeDragOnReturns || '0')).toFixed(2)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-red-600">
+                        <span className="text-sm">Fee Drag</span>
+                        <span className="font-semibold">-{combinedReturns.feeDragOnReturns}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Sponsor Compensation */}
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <h3 className="font-medium text-gray-900 mb-3">Total Sponsor Compensation</h3>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Total Fees</span>
+                        <span className="font-semibold text-blue-600">
+                          {formatCurrency(combinedReturns.totalSponsorCompensation || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">As % of Equity</span>
+                        <span className="font-semibold">{combinedReturns.feeAsPercentOfEquity}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Annual Equivalent</span>
+                        <span className="font-semibold">
+                          {formatCurrency(
+                            (combinedReturns.totalSponsorCompensation || 0) / operatingAssumptions.holdPeriod
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Comparison Toggle */}
+                  <button
+                    onClick={() => {
+                      calculateComparisonScenarios();
+                      setShowFeeComparison(!showFeeComparison);
+                    }}
+                    className="w-full py-2 px-4 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700"
+                  >
+                    {showFeeComparison ? 'Hide Comparison' : 'Compare to Promote Structure'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Fee Comparison Chart */}
+        {showFeeComparison && feeComparisonData && (
+          <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-xl font-semibold mb-4">Compensation Structure Comparison</h2>
+            
+            {/* Comparison Chart */}
+            <div className="mb-6">
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={[
+                      {
+                        metric: 'LP IRR',
+                        promote: parseFloat(feeComparisonData.promote.lpIRR),
+                        sponsorFee: parseFloat(feeComparisonData.sponsorFee.lpIRR),
+                      },
+                      {
+                        metric: 'Equity Multiple',
+                        promote: parseFloat(feeComparisonData.promote.equityMultiple),
+                        sponsorFee: parseFloat(feeComparisonData.sponsorFee.equityMultiple),
+                      },
+                    ]}
+                    layout="horizontal"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="metric" />
+                    <YAxis />
+                    <Tooltip formatter={(value: any) => `${value.toFixed(2)}${value < 10 ? 'x' : '%'}`} />
+                    <Legend />
+                    <Bar dataKey="promote" fill="#3B82F6" name="Promote Structure" />
+                    <Bar dataKey="sponsorFee" fill="#10B981" name="Sponsor Fee Structure" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Detailed Comparison Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Metric</th>
+                    <th className="text-center py-2">Promote Structure</th>
+                    <th className="text-center py-2">Sponsor Fee Structure</th>
+                    <th className="text-center py-2">Difference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">LP IRR</td>
+                    <td className="text-center py-2">{feeComparisonData.promote.lpIRR}%</td>
+                    <td className="text-center py-2">{feeComparisonData.sponsorFee.lpIRR}%</td>
+                    <td className="text-center py-2 font-semibold">
+                      <span className={parseFloat(feeComparisonData.promote.lpIRR) > parseFloat(feeComparisonData.sponsorFee.lpIRR) ? 'text-green-600' : 'text-red-600'}>
+                        {(parseFloat(feeComparisonData.promote.lpIRR) - parseFloat(feeComparisonData.sponsorFee.lpIRR)).toFixed(2)}%
+                      </span>
+                    </td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">LP Equity Multiple</td>
+                    <td className="text-center py-2">{feeComparisonData.promote.equityMultiple}x</td>
+                    <td className="text-center py-2">{feeComparisonData.sponsorFee.equityMultiple}x</td>
+                    <td className="text-center py-2 font-semibold">
+                      <span className={parseFloat(feeComparisonData.promote.equityMultiple) > parseFloat(feeComparisonData.sponsorFee.equityMultiple) ? 'text-green-600' : 'text-red-600'}>
+                        {(parseFloat(feeComparisonData.promote.equityMultiple) - parseFloat(feeComparisonData.sponsorFee.equityMultiple)).toFixed(2)}x
+                      </span>
+                    </td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">Total LP Distributions</td>
+                    <td className="text-center py-2">{formatCurrency(feeComparisonData.promote.lpReturn)}</td>
+                    <td className="text-center py-2">{formatCurrency(feeComparisonData.sponsorFee.lpReturn)}</td>
+                    <td className="text-center py-2 font-semibold">
+                      <span className={feeComparisonData.promote.lpReturn > feeComparisonData.sponsorFee.lpReturn ? 'text-green-600' : 'text-red-600'}>
+                        {formatCurrency(feeComparisonData.promote.lpReturn - feeComparisonData.sponsorFee.lpReturn)}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr className="border-b bg-gray-50">
+                    <td className="py-2 font-medium">GP/Sponsor Compensation</td>
+                    <td className="text-center py-2">{formatCurrency(feeComparisonData.promote.totalCompensation)}</td>
+                    <td className="text-center py-2">{formatCurrency(feeComparisonData.sponsorFee.totalCompensation)}</td>
+                    <td className="text-center py-2 font-semibold">
+                      <span className={feeComparisonData.promote.totalCompensation < feeComparisonData.sponsorFee.totalCompensation ? 'text-green-600' : 'text-red-600'}>
+                        {formatCurrency(feeComparisonData.sponsorFee.totalCompensation - feeComparisonData.promote.totalCompensation)}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">GP Compensation as % of Equity</td>
+                    <td className="text-center py-2">
+                      {((feeComparisonData.promote.totalCompensation / calculateFinancing.equityRequired) * 100).toFixed(1)}%
+                    </td>
+                    <td className="text-center py-2">
+                      {((feeComparisonData.sponsorFee.totalCompensation / calculateFinancing.equityRequired) * 100).toFixed(1)}%
+                    </td>
+                    <td className="text-center py-2 font-semibold">
+                      {(((feeComparisonData.sponsorFee.totalCompensation / calculateFinancing.equityRequired) - 
+                        (feeComparisonData.promote.totalCompensation / calculateFinancing.equityRequired)) * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Key Insights */}
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+              <h3 className="font-medium text-gray-900 mb-2">Key Insights</h3>
+              <ul className="space-y-2 text-sm text-gray-700">
+                <li className="flex items-start">
+                  <span className="text-blue-500 mr-2">•</span>
+                  {parseFloat(feeComparisonData.promote.lpIRR) > parseFloat(feeComparisonData.sponsorFee.lpIRR) ? (
+                    <span>The promote structure provides <strong>{(parseFloat(feeComparisonData.promote.lpIRR) - parseFloat(feeComparisonData.sponsorFee.lpIRR)).toFixed(2)}%</strong> higher LP IRR due to performance alignment.</span>
+                  ) : (
+                    <span>The sponsor fee structure results in <strong>{(parseFloat(feeComparisonData.sponsorFee.lpIRR) - parseFloat(feeComparisonData.promote.lpIRR)).toFixed(2)}%</strong> lower LP IRR due to fee drag.</span>
+                  )}
+                </li>
+                <li className="flex items-start">
+                  <span className="text-blue-500 mr-2">•</span>
+                  <span>
+                    Sponsor fees total <strong>{formatCurrency(feeComparisonData.sponsorFee.totalCompensation)}</strong> ({((feeComparisonData.sponsorFee.totalCompensation / calculateFinancing.equityRequired) * 100).toFixed(1)}% of equity), 
+                    while promote compensation is estimated at <strong>{formatCurrency(feeComparisonData.promote.totalCompensation)}</strong> ({((feeComparisonData.promote.totalCompensation / calculateFinancing.equityRequired) * 100).toFixed(1)}% of equity).
+                  </span>
+                </li>
+                <li className="flex items-start">
+                  <span className="text-blue-500 mr-2">•</span>
+                  <span>
+                    The sponsor fee structure provides <strong>guaranteed compensation</strong> regardless of performance, 
+                    while the promote structure aligns GP compensation with LP returns.
+                  </span>
+                </li>
+                {feeComparisonData.sponsorFee.feeDrag && (
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">•</span>
+                    <span>
+                      Fee drag under the sponsor fee structure is approximately <strong>{feeComparisonData.sponsorFee.feeDrag}%</strong> on returns.
+                    </span>
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            {/* Visual Compensation Breakdown */}
+            <div className="mt-6">
+              <h3 className="font-medium text-gray-900 mb-3">Compensation Timing</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 border rounded-lg">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Promote Structure</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">At Closing:</span>
+                      <span>$0</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">During Hold:</span>
+                      <span>$0</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">At Exit:</span>
+                      <span className="font-semibold">{formatCurrency(feeComparisonData.promote.totalCompensation)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Sponsor Fee Structure</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">At Closing:</span>
+                      <span>{formatCurrency(calculateFinancing.totalSponsorFees || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">During Hold:</span>
+                      <span>{formatCurrency((feeComparisonData.sponsorFee.totalCompensation - (calculateFinancing.totalSponsorFees || 0)) * 0.9)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">At Exit:</span>
+                      <span>{formatCurrency((feeComparisonData.sponsorFee.totalCompensation - (calculateFinancing.totalSponsorFees || 0)) * 0.1)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Cash Flow Analysis */}
         <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
@@ -4187,6 +5050,134 @@ ${
             </table>
           </div>
         </div>
+
+        {/* Sponsor Fee Schedule */}
+        {compensationType === 'sponsorFee' && (
+          <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-xl font-semibold mb-4">Sponsor Fee Schedule</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Year</th>
+                    <th className="text-right py-2">Asset Mgmt Fee</th>
+                    {propertyType === 'apartment' && <th className="text-right py-2">Property Mgmt</th>}
+                    <th className="text-right py-2">Other Fees</th>
+                    <th className="text-right py-2">Total Fees</th>
+                    <th className="text-right py-2">Cumulative</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    let cumulativeFees = 0;
+                    const feeSchedule = [];
+                    
+                    // Year 0 - Upfront fees
+                    const upfrontFees = calculateFinancing.totalSponsorFees || 0;
+                    cumulativeFees += upfrontFees;
+                    feeSchedule.push({
+                      year: 0,
+                      assetMgmt: 0,
+                      propertyMgmt: 0,
+                      other: upfrontFees,
+                      total: upfrontFees,
+                      cumulative: cumulativeFees
+                    });
+                    
+                    // Years 1 through holding period
+                    for (let year = 1; year <= operatingAssumptions.holdPeriod; year++) {
+                      const cashFlow = calculateCashFlows?.cashFlows?.[year];
+                      const assetMgmtFee = cashFlow?.sponsorFees || 0;
+                      const isLastYear = year === operatingAssumptions.holdPeriod;
+                      const dispositionFee = isLastYear ? (cashFlow?.dispositionFee || 0) : 0;
+                      
+                      // For simplicity, we'll estimate property management fee separately if needed
+                      const totalRevenue = cashFlow?.grossRevenue || 0;
+                      const propertyMgmtFee = propertyType === 'apartment' && totalRevenue > 0 ? 
+                        totalRevenue * sponsorFees.propertyManagementFee / 100 : 0;
+                      
+                      // Asset mgmt fee already includes property mgmt in the calculation
+                      const netAssetMgmtFee = assetMgmtFee - propertyMgmtFee;
+                      
+                      const totalYearFees = assetMgmtFee + dispositionFee;
+                      cumulativeFees += totalYearFees;
+                      
+                      feeSchedule.push({
+                        year,
+                        assetMgmt: netAssetMgmtFee,
+                        propertyMgmt: propertyMgmtFee,
+                        other: dispositionFee,
+                        total: totalYearFees,
+                        cumulative: cumulativeFees
+                      });
+                    }
+                    
+                    return feeSchedule.map((row, index) => (
+                      <tr key={index} className={`border-b ${row.year === 0 ? 'bg-gray-50' : ''}`}>
+                        <td className="py-2 font-medium">
+                          {row.year === 0 ? 'Closing' : `Year ${row.year}`}
+                        </td>
+                        <td className="text-right py-2">
+                          {row.assetMgmt > 0 ? formatCurrency(row.assetMgmt) : '-'}
+                        </td>
+                        {propertyType === 'apartment' && (
+                          <td className="text-right py-2">
+                            {row.propertyMgmt > 0 ? formatCurrency(row.propertyMgmt) : '-'}
+                          </td>
+                        )}
+                        <td className="text-right py-2">
+                          {row.other > 0 ? formatCurrency(row.other) : '-'}
+                        </td>
+                        <td className="text-right py-2 font-semibold">
+                          {formatCurrency(row.total)}
+                        </td>
+                        <td className="text-right py-2 font-semibold text-blue-600">
+                          {formatCurrency(row.cumulative)}
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+                <tfoot className="border-t-2">
+                  <tr>
+                    <td colSpan={propertyType === 'apartment' ? 4 : 3} className="py-2 font-semibold">
+                      Total Sponsor Compensation
+                    </td>
+                    <td colSpan={2} className="text-right py-2 font-bold text-blue-600">
+                      {formatCurrency(calculateReturns?.totalSponsorCompensation || 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-gray-600">Upfront Fees</p>
+                <p className="font-semibold">{formatCurrency(calculateFinancing.totalSponsorFees || 0)}</p>
+                <p className="text-xs text-gray-500 mt-1">At closing</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-gray-600">Annual Fees (Avg)</p>
+                <p className="font-semibold">
+                  {formatCurrency(
+                    ((calculateReturns?.totalSponsorCompensation || 0) - (calculateFinancing.totalSponsorFees || 0)) / 
+                    operatingAssumptions.holdPeriod
+                  )}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Per year</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-gray-600">Total as % of NOI</p>
+                <p className="font-semibold">
+                  {calculateCashFlows?.year1NOI && calculateCashFlows.year1NOI > 0 ? 
+                    ((calculateReturns?.totalSponsorCompensation || 0) / 
+                    (calculateCashFlows.year1NOI * operatingAssumptions.holdPeriod) * 100).toFixed(1) : '0.0'}%
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Over hold period</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Risk Analysis Section */}
         {mode === "detailed" && (

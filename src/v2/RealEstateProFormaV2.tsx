@@ -1,8 +1,22 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Menu, X, ChevronLeft, ChevronRight, Save, Calculator,
-  FileText, TrendingUp, Building2, DollarSign, Settings
+  FileText, TrendingUp, Building2, DollarSign, Settings, Users,
+  BarChart as BarChartIcon
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { ScenarioManager, Project, Scenario, ScenarioData } from './features/ScenarioManager';
 import { PDFExportSystem } from './features/PDFExportSystem';
 import { AIInsightsIntegration } from '../components/AIInsightsIntegration';
@@ -242,8 +256,584 @@ const PropertyForm: React.FC<{
   );
 };
 
+// Equity Structure and Sponsor Fees Component
+const EquityStructurePanel: React.FC<{
+  compensationType: 'promote' | 'sponsorFee';
+  setCompensationType: (type: 'promote' | 'sponsorFee') => void;
+  sponsorFees: any;
+  setSponsorFees: (fees: any) => void;
+  equityStructure: any;
+  setEquityStructure: (structure: any) => void;
+  waterfallTiers: any[];
+  setWaterfallTiers: (tiers: any[]) => void;
+  locked: boolean;
+}> = ({ 
+  compensationType, 
+  setCompensationType, 
+  sponsorFees, 
+  setSponsorFees, 
+  equityStructure, 
+  setEquityStructure,
+  waterfallTiers,
+  setWaterfallTiers,
+  locked 
+}) => {
+  const handleSponsorFeeChange = (field: string, value: string) => {
+    setSponsorFees({
+      ...sponsorFees,
+      [field]: parseFloat(value) || 0
+    });
+  };
+
+  const handleEquityChange = (field: string, value: string) => {
+    setEquityStructure({
+      ...equityStructure,
+      [field]: field.includes('Equity') || field.includes('Percentage') ? parseFloat(value) || 0 : value
+    });
+  };
+  
+  // Helper functions for fee timing calculations
+  const calculateCashOnCashWithTiming = (year: number): number => {
+    // Mock calculation - replace with actual cash flow logic
+    return 8.5;
+  };
+  
+  const calculateStandardCashOnCash = (year: number): number => {
+    // Mock calculation - replace with actual cash flow logic
+    return 7.2;
+  };
+  
+  const calculateTotalDeferredFees = (): number => {
+    // Mock calculation - replace with actual deferred fee logic
+    return 125000;
+  };
+  
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(value);
+  };
+  
+  // Mock operating assumptions - replace with actual data
+  const operatingAssumptions = {
+    holdPeriod: 5
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <Users size={20} />
+        Equity Structure & Compensation
+      </h3>
+
+      {/* Compensation Type Toggle */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">Compensation Type</label>
+        <div className="flex gap-4">
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="promote"
+              checked={compensationType === 'promote'}
+              onChange={() => setCompensationType('promote')}
+              disabled={locked}
+              className="mr-2"
+            />
+            <span>Waterfall Promote</span>
+          </label>
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="sponsorFee"
+              checked={compensationType === 'sponsorFee'}
+              onChange={() => setCompensationType('sponsorFee')}
+              disabled={locked}
+              className="mr-2"
+            />
+            <span>Sponsor Fees</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Equity Split */}
+      <div className="mb-6">
+        <h4 className="font-medium mb-3">Equity Split</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">LP Equity (%)</label>
+            <input
+              type="number"
+              value={equityStructure.lpEquity}
+              onChange={(e) => handleEquityChange('lpEquity', e.target.value)}
+              disabled={locked}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">GP Equity (%)</label>
+            <input
+              type="number"
+              value={equityStructure.gpEquity}
+              onChange={(e) => handleEquityChange('gpEquity', e.target.value)}
+              disabled={locked}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            />
+          </div>
+        </div>
+      </div>
+
+      {compensationType === 'sponsorFee' ? (
+        <div className="space-y-6">
+          {/* One-time Fees */}
+          <div>
+            <h4 className="font-medium mb-3">One-time Fees</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Acquisition Fee (% of total project cost)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sponsorFees.acquisitionFee}
+                  onChange={(e) => handleSponsorFeeChange('acquisitionFee', e.target.value)}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Development Fee (% of total project cost)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sponsorFees.developmentFee}
+                  onChange={(e) => handleSponsorFeeChange('developmentFee', e.target.value)}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Construction Management Fee (% of hard costs)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sponsorFees.constructionManagementFee}
+                  onChange={(e) => handleSponsorFeeChange('constructionManagementFee', e.target.value)}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Disposition Fee (% of gross sale price)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sponsorFees.dispositionFee}
+                  onChange={(e) => handleSponsorFeeChange('dispositionFee', e.target.value)}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Ongoing Fees */}
+          <div>
+            <h4 className="font-medium mb-3">Ongoing Fees</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Asset Management Fee (% of EGR annually)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sponsorFees.assetManagementFee}
+                  onChange={(e) => handleSponsorFeeChange('assetManagementFee', e.target.value)}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Property Management Fee (% of EGR)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={sponsorFees.propertyManagementFee}
+                  onChange={(e) => handleSponsorFeeChange('propertyManagementFee', e.target.value)}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Performance Structure */}
+          <div>
+            <h4 className="font-medium mb-3">Performance Structure</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fee Structure Type</label>
+                <select
+                  value={sponsorFees.feeStructureType}
+                  onChange={(e) => setSponsorFees({ ...sponsorFees, feeStructureType: e.target.value })}
+                  disabled={locked}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                >
+                  <option value="standard">Standard (Full fees regardless of performance)</option>
+                  <option value="performance">Performance-based (Reduced fees below hurdle)</option>
+                </select>
+              </div>
+              {sponsorFees.feeStructureType === 'performance' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Performance Hurdle (% preferred return)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={sponsorFees.performanceHurdle}
+                      onChange={(e) => handleSponsorFeeChange('performanceHurdle', e.target.value)}
+                      disabled={locked}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Reduced Fee % (if below hurdle)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={sponsorFees.reducedFeePercent}
+                      onChange={(e) => handleSponsorFeeChange('reducedFeePercent', e.target.value)}
+                      disabled={locked}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          
+          {/* Fee Timing Options - Add after the fee percentage inputs */}
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <h4 className="text-sm font-medium text-gray-900 mb-3">Fee Timing & Deferral Options</h4>
+          
+          {/* Acquisition Fee Deferral */}
+          <div className="space-y-3">
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="deferAcquisition"
+                checked={sponsorFees.timing.deferAcquisitionFee}
+                onChange={(e) => setSponsorFees({
+                  ...sponsorFees,
+                  timing: { ...sponsorFees.timing, deferAcquisitionFee: e.target.checked }
+                })}
+                className="mr-2"
+              />
+              <label htmlFor="deferAcquisition" className="text-sm text-gray-700">
+                Defer acquisition fee to improve initial returns
+              </label>
+            </div>
+            
+            {sponsorFees.timing.deferAcquisitionFee && (
+              <div className="ml-6">
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Deferral Period (Months)
+                </label>
+                <input
+                  type="number"
+                  value={sponsorFees.timing.acquisitionFeeDeferralMonths}
+                  onChange={(e) => setSponsorFees({
+                    ...sponsorFees,
+                    timing: { ...sponsorFees.timing, acquisitionFeeDeferralMonths: Number(e.target.value) }
+                  })}
+                  className="w-32 px-2 py-1 border border-gray-300 rounded text-sm"
+                />
+              </div>
+            )}
+            
+            {/* Asset Management Fee Deferral */}
+            <div className="flex items-center mt-3">
+              <input
+                type="checkbox"
+                id="deferAssetMgmt"
+                checked={sponsorFees.timing.assetMgmtDeferral.enabled}
+                onChange={(e) => setSponsorFees({
+                  ...sponsorFees,
+                  timing: {
+                    ...sponsorFees.timing,
+                    assetMgmtDeferral: { ...sponsorFees.timing.assetMgmtDeferral, enabled: e.target.checked }
+                  }
+                })}
+                className="mr-2"
+              />
+              <label htmlFor="deferAssetMgmt" className="text-sm text-gray-700">
+                Defer asset management fees during lease-up
+              </label>
+            </div>
+            
+            {sponsorFees.timing.assetMgmtDeferral.enabled && (
+              <div className="ml-6 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Start Collection Year
+                  </label>
+                  <input
+                    type="number"
+                    value={sponsorFees.timing.assetMgmtDeferral.startYear}
+                    onChange={(e) => setSponsorFees({
+                      ...sponsorFees,
+                      timing: {
+                        ...sponsorFees.timing,
+                        assetMgmtDeferral: {
+                          ...sponsorFees.timing.assetMgmtDeferral,
+                          startYear: Number(e.target.value)
+                        }
+                      }
+                    })}
+                    min="1"
+                    max={operatingAssumptions.holdPeriod}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Accrual Rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    value={sponsorFees.timing.assetMgmtDeferral.accruedRate}
+                    onChange={(e) => setSponsorFees({
+                      ...sponsorFees,
+                      timing: {
+                        ...sponsorFees.timing,
+                        assetMgmtDeferral: {
+                          ...sponsorFees.timing.assetMgmtDeferral,
+                          accruedRate: Number(e.target.value)
+                        }
+                      }
+                    })}
+                    step="0.5"
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+              </div>
+            )}
+            
+            {/* Development Fee Payout */}
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Development Fee Payout Schedule
+              </label>
+              <select
+                value={sponsorFees.timing.developmentFeePayout}
+                onChange={(e) => setSponsorFees({
+                  ...sponsorFees,
+                  timing: { ...sponsorFees.timing, developmentFeePayout: e.target.value as any }
+                })}
+                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+              >
+                <option value="upfront">100% at Closing</option>
+                <option value="milestone">Milestone-Based</option>
+                <option value="completion">At Completion</option>
+              </select>
+            </div>
+            
+            {/* Disposition Fee Structure */}
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Disposition Fee Structure
+              </label>
+              <select
+                value={sponsorFees.timing.dispositionFeeStructure}
+                onChange={(e) => setSponsorFees({
+                  ...sponsorFees,
+                  timing: { ...sponsorFees.timing, dispositionFeeStructure: e.target.value as any }
+                })}
+                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+              >
+                <option value="standard">Standard (Always Paid)</option>
+                <option value="hurdle">Subject to Return Hurdle</option>
+                <option value="waterfall">Waterfall-Based</option>
+              </select>
+            </div>
+            
+            {sponsorFees.timing.dispositionFeeStructure === 'hurdle' && (
+              <div className="ml-6 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Minimum IRR (%)
+                  </label>
+                  <input
+                    type="number"
+                    value={sponsorFees.timing.dispositionHurdle.minReturn}
+                    onChange={(e) => setSponsorFees({
+                      ...sponsorFees,
+                      timing: {
+                        ...sponsorFees.timing,
+                        dispositionHurdle: {
+                          ...sponsorFees.timing.dispositionHurdle,
+                          minReturn: Number(e.target.value)
+                        }
+                      }
+                    })}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Reduced Fee (%)
+                  </label>
+                  <input
+                    type="number"
+                    value={sponsorFees.timing.dispositionHurdle.reducedFee * 100}
+                    onChange={(e) => setSponsorFees({
+                      ...sponsorFees,
+                      timing: {
+                        ...sponsorFees.timing,
+                        dispositionHurdle: {
+                          ...sponsorFees.timing.dispositionHurdle,
+                          reducedFee: Number(e.target.value) / 100
+                        }
+                      }
+                    })}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+              </div>
+            )}
+            
+            {/* Fee Caps */}
+            <div className="flex items-center mt-3">
+              <input
+                type="checkbox"
+                id="feeCaps"
+                checked={sponsorFees.feeCaps.enabled}
+                onChange={(e) => setSponsorFees({
+                  ...sponsorFees,
+                  feeCaps: { ...sponsorFees.feeCaps, enabled: e.target.checked }
+                })}
+                className="mr-2"
+              />
+              <label htmlFor="feeCaps" className="text-sm text-gray-700">
+                Apply institutional fee caps
+              </label>
+            </div>
+            
+            {sponsorFees.feeCaps.enabled && (
+              <div className="ml-6 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Total Fee Cap (% of Equity)
+                  </label>
+                  <input
+                    type="number"
+                    value={sponsorFees.feeCaps.totalFeeCap}
+                    onChange={(e) => setSponsorFees({
+                      ...sponsorFees,
+                      feeCaps: { ...sponsorFees.feeCaps, totalFeeCap: Number(e.target.value) }
+                    })}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Annual Cap (% of Equity)
+                  </label>
+                  <input
+                    type="number"
+                    value={sponsorFees.feeCaps.annualFeeCap}
+                    onChange={(e) => setSponsorFees({
+                      ...sponsorFees,
+                      feeCaps: { ...sponsorFees.feeCaps, annualFeeCap: Number(e.target.value) }
+                    })}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Fee Timing Impact Summary */}
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+            <h5 className="text-sm font-medium text-gray-900 mb-2">Fee Timing Impact</h5>
+            <div className="space-y-1 text-xs text-gray-700">
+              <div className="flex justify-between">
+                <span>Year 1 Cash-on-Cash (with timing):</span>
+                <span className="font-medium">
+                  {calculateCashOnCashWithTiming(1).toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Year 1 Cash-on-Cash (standard):</span>
+                <span className="font-medium">
+                  {calculateStandardCashOnCash(1).toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex justify-between text-green-600">
+                <span>Improvement:</span>
+                <span className="font-medium">
+                  +{(calculateCashOnCashWithTiming(1) - calculateStandardCashOnCash(1)).toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex justify-between mt-2 pt-2 border-t">
+                <span>Total Deferred Fees:</span>
+                <span className="font-medium">
+                  {formatCurrency(calculateTotalDeferredFees())}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      ) : (
+        <div>
+          {/* Waterfall/Promote Structure */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Preferred Return (%)
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={equityStructure.preferredReturn}
+              onChange={(e) => handleEquityChange('preferredReturn', e.target.value)}
+              disabled={locked}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            />
+          </div>
+          <div className="text-sm text-gray-600 mb-4">
+            Waterfall tiers will be applied to distributions above the preferred return
+          </div>
+          {/* Add waterfall tier management here if needed */}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Results Component
-const ResultsPanel: React.FC<{ data: PropertyData }> = ({ data }) => {
+const ResultsPanel: React.FC<{ 
+  data: PropertyData;
+  compensationType: 'promote' | 'sponsorFee';
+  sponsorFees: any;
+  equityStructure: any;
+}> = ({ data, compensationType, sponsorFees, equityStructure }) => {
   // Calculate metrics
   const totalInvestment = data.purchasePrice + data.closingCosts + data.renovationCosts;
   const downPayment = data.purchasePrice * (data.downPaymentPercent / 100);
@@ -269,12 +859,47 @@ const ResultsPanel: React.FC<{ data: PropertyData }> = ({ data }) => {
     data.other;
 
   const noi = (monthlyIncome - monthlyExpenses) * 12;
-  const cashFlow = monthlyIncome - monthlyExpenses - monthlyPayment;
+  
+  // Calculate sponsor fees if applicable
+  let totalSponsorFees = 0;
+  let sponsorFeeDetails = {
+    acquisitionFee: 0,
+    developmentFee: 0,
+    constructionManagementFee: 0,
+    dispositionFee: 0,
+    assetManagementFeeAnnual: 0,
+    propertyManagementFeeAnnual: 0,
+  };
+  
+  if (compensationType === 'sponsorFee') {
+    // One-time fees
+    sponsorFeeDetails.acquisitionFee = totalInvestment * (sponsorFees.acquisitionFee / 100);
+    sponsorFeeDetails.developmentFee = totalInvestment * (sponsorFees.developmentFee / 100);
+    sponsorFeeDetails.constructionManagementFee = data.renovationCosts * (sponsorFees.constructionManagementFee / 100);
+    // Disposition fee would be calculated at sale (not included in ongoing cash flow)
+    
+    // Annual fees
+    const effectiveGrossRevenue = monthlyIncome * 12;
+    sponsorFeeDetails.assetManagementFeeAnnual = effectiveGrossRevenue * (sponsorFees.assetManagementFee / 100);
+    sponsorFeeDetails.propertyManagementFeeAnnual = effectiveGrossRevenue * (sponsorFees.propertyManagementFee / 100);
+    
+    // Total upfront fees
+    totalSponsorFees = sponsorFeeDetails.acquisitionFee + sponsorFeeDetails.developmentFee + sponsorFeeDetails.constructionManagementFee;
+  }
+  
+  // Adjust cash flow for sponsor fees
+  const monthlyAssetMgmtFee = sponsorFeeDetails.assetManagementFeeAnnual / 12;
+  const monthlyPropMgmtFee = sponsorFeeDetails.propertyManagementFeeAnnual / 12;
+  const adjustedMonthlyExpenses = monthlyExpenses + monthlyAssetMgmtFee + monthlyPropMgmtFee;
+  const adjustedNOI = (monthlyIncome - adjustedMonthlyExpenses) * 12;
+  
+  const cashFlow = monthlyIncome - adjustedMonthlyExpenses - monthlyPayment;
   const annualCashFlow = cashFlow * 12;
   
-  const capRate = data.purchasePrice > 0 ? (noi / data.purchasePrice) * 100 : 0;
-  const cashOnCashReturn = (downPayment + data.closingCosts + data.renovationCosts) > 0 
-    ? (annualCashFlow / (downPayment + data.closingCosts + data.renovationCosts)) * 100 
+  const capRate = data.purchasePrice > 0 ? (adjustedNOI / data.purchasePrice) * 100 : 0;
+  const totalInitialEquity = downPayment + data.closingCosts + data.renovationCosts + totalSponsorFees;
+  const cashOnCashReturn = totalInitialEquity > 0 
+    ? (annualCashFlow / totalInitialEquity) * 100 
     : 0;
 
   const formatCurrency = (value: number) => {
@@ -336,6 +961,248 @@ const ResultsPanel: React.FC<{ data: PropertyData }> = ({ data }) => {
             </div>
           </div>
         </div>
+        
+        {compensationType === 'sponsorFee' && totalSponsorFees > 0 && (
+          <div className="border-t pt-4">
+            <h4 className="font-medium mb-2">Sponsor Fees</h4>
+            <div className="space-y-2 text-sm">
+              <div className="font-medium text-gray-700 mb-1">One-time Fees:</div>
+              {sponsorFeeDetails.acquisitionFee > 0 && (
+                <div className="flex justify-between pl-4">
+                  <span className="text-gray-600">Acquisition Fee:</span>
+                  <span className="font-medium">{formatCurrency(sponsorFeeDetails.acquisitionFee)}</span>
+                </div>
+              )}
+              {sponsorFeeDetails.developmentFee > 0 && (
+                <div className="flex justify-between pl-4">
+                  <span className="text-gray-600">Development Fee:</span>
+                  <span className="font-medium">{formatCurrency(sponsorFeeDetails.developmentFee)}</span>
+                </div>
+              )}
+              {sponsorFeeDetails.constructionManagementFee > 0 && (
+                <div className="flex justify-between pl-4">
+                  <span className="text-gray-600">Construction Mgmt Fee:</span>
+                  <span className="font-medium">{formatCurrency(sponsorFeeDetails.constructionManagementFee)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-medium">
+                <span className="text-gray-700">Total Upfront Fees:</span>
+                <span>{formatCurrency(totalSponsorFees)}</span>
+              </div>
+              
+              <div className="font-medium text-gray-700 mb-1 mt-3">Annual Fees:</div>
+              {sponsorFeeDetails.assetManagementFeeAnnual > 0 && (
+                <div className="flex justify-between pl-4">
+                  <span className="text-gray-600">Asset Management:</span>
+                  <span className="font-medium">{formatCurrency(sponsorFeeDetails.assetManagementFeeAnnual)}/yr</span>
+                </div>
+              )}
+              {sponsorFeeDetails.propertyManagementFeeAnnual > 0 && (
+                <div className="flex justify-between pl-4">
+                  <span className="text-gray-600">Property Management:</span>
+                  <span className="font-medium">{formatCurrency(sponsorFeeDetails.propertyManagementFeeAnnual)}/yr</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Fee Comparison Component
+const FeeComparisonComponent: React.FC<{
+  showFeeComparison: boolean;
+  setShowFeeComparison: (show: boolean) => void;
+  comparisonScenarios: any;
+  calculateFinancing: any;
+  combinedReturns: any;
+}> = ({ showFeeComparison, setShowFeeComparison, comparisonScenarios, calculateFinancing, combinedReturns }) => {
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(value);
+  };
+
+  const generateStructureRecommendation = () => {
+    const projectedIRR = parseFloat(combinedReturns.irr);
+    const breakEven = comparisonScenarios?.differential.breakEvenIRR || 15;
+    
+    if (projectedIRR < 10) {
+      return "Given the projected returns below 10%, sponsor fees provide more predictable compensation and reduce GP downside risk.";
+    } else if (projectedIRR > breakEven + 5) {
+      return "With strong projected returns, a promote structure would likely yield higher GP compensation while better aligning LP/GP interests.";
+    } else {
+      return "Returns are in the range where both structures could work. Consider investor preferences and risk tolerance when choosing.";
+    }
+  };
+
+  if (!showFeeComparison || !comparisonScenarios) return null;
+
+  return (
+    <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">Compensation Structure Comparison</h2>
+        <button
+          onClick={() => setShowFeeComparison(false)}
+          className="text-gray-500 hover:text-gray-700"
+        >
+          <X size={20} />
+        </button>
+      </div>
+      
+      {/* Comparison Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* LP Returns Comparison */}
+        <div>
+          <h3 className="text-lg font-medium mb-3">LP Returns Comparison</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={[
+                  {
+                    metric: 'IRR (%)',
+                    promote: comparisonScenarios.promote.lpIRR,
+                    sponsorFee: comparisonScenarios.sponsorFee.lpIRR,
+                  },
+                  {
+                    metric: 'Multiple',
+                    promote: comparisonScenarios.promote.lpEquityMultiple,
+                    sponsorFee: comparisonScenarios.sponsorFee.lpEquityMultiple,
+                  }
+                ]}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="metric" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="promote" fill="#3B82F6" name="Promote Structure" />
+                <Bar dataKey="sponsorFee" fill="#10B981" name="Sponsor Fees" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        
+        {/* GP Compensation Comparison */}
+        <div>
+          <h3 className="text-lg font-medium mb-3">GP Total Compensation</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[
+                    { 
+                      name: 'Promote Structure', 
+                      value: comparisonScenarios.promote.gpCompensation,
+                      detail: `${((comparisonScenarios.promote.gpCompensation / calculateFinancing.equityRequired) * 100).toFixed(1)}% of equity`
+                    },
+                    { 
+                      name: 'Sponsor Fees', 
+                      value: comparisonScenarios.sponsorFee.gpCompensation,
+                      detail: `${((comparisonScenarios.sponsorFee.gpCompensation / calculateFinancing.equityRequired) * 100).toFixed(1)}% of equity`
+                    }
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, value }) => `${name}: ${formatCurrency(value)}`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  <Cell fill="#3B82F6" />
+                  <Cell fill="#10B981" />
+                </Pie>
+                <Tooltip formatter={(value) => formatCurrency(value as number)} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+      
+      {/* Detailed Comparison Table */}
+      <div className="mt-6 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-2">Metric</th>
+              <th className="text-center py-2">Promote Structure</th>
+              <th className="text-center py-2">Sponsor Fees</th>
+              <th className="text-center py-2">Difference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b">
+              <td className="py-2 font-medium">LP IRR</td>
+              <td className="text-center">{comparisonScenarios.promote.lpIRR}%</td>
+              <td className="text-center">{comparisonScenarios.sponsorFee.lpIRR}%</td>
+              <td className={`text-center font-medium ${
+                comparisonScenarios.differential.lpIRR > 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {comparisonScenarios.differential.lpIRR > 0 ? '+' : ''}
+                {comparisonScenarios.differential.lpIRR.toFixed(2)}%
+              </td>
+            </tr>
+            <tr className="border-b">
+              <td className="py-2 font-medium">LP Equity Multiple</td>
+              <td className="text-center">{comparisonScenarios.promote.lpEquityMultiple}x</td>
+              <td className="text-center">{comparisonScenarios.sponsorFee.lpEquityMultiple}x</td>
+              <td className="text-center">
+                {(comparisonScenarios.promote.lpEquityMultiple - 
+                  comparisonScenarios.sponsorFee.lpEquityMultiple).toFixed(2)}x
+              </td>
+            </tr>
+            <tr className="border-b">
+              <td className="py-2 font-medium">GP Total Compensation</td>
+              <td className="text-center">{formatCurrency(comparisonScenarios.promote.gpCompensation)}</td>
+              <td className="text-center">{formatCurrency(comparisonScenarios.sponsorFee.gpCompensation)}</td>
+              <td className={`text-center font-medium ${
+                comparisonScenarios.differential.totalGPComp > 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {formatCurrency(Math.abs(comparisonScenarios.differential.totalGPComp))}
+                {comparisonScenarios.differential.totalGPComp > 0 ? ' more' : ' less'}
+              </td>
+            </tr>
+            <tr className="border-b">
+              <td className="py-2 font-medium">GP Risk Profile</td>
+              <td className="text-center">Performance-based</td>
+              <td className="text-center">Guaranteed fees</td>
+              <td className="text-center">-</td>
+            </tr>
+            <tr className="border-b">
+              <td className="py-2 font-medium">Timing of GP Comp</td>
+              <td className="text-center">Back-ended</td>
+              <td className="text-center">Throughout hold</td>
+              <td className="text-center">-</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      
+      {/* Break-Even Analysis */}
+      <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+        <h4 className="font-medium text-gray-900 mb-2">Break-Even Analysis</h4>
+        <p className="text-sm text-gray-600">
+          At a project IRR of <span className="font-semibold">{comparisonScenarios.differential.breakEvenIRR}%</span>, 
+          both structures would yield approximately the same total GP compensation.
+        </p>
+        <ul className="mt-2 text-sm text-gray-600 space-y-1">
+          <li>• Below this IRR: Sponsor fees provide more guaranteed compensation</li>
+          <li>• Above this IRR: Promote structure yields higher GP returns</li>
+        </ul>
+      </div>
+      
+      {/* Recommendation Engine */}
+      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+        <h4 className="font-medium text-gray-900 mb-2">Structure Recommendation</h4>
+        <p className="text-sm text-gray-700">
+          {generateStructureRecommendation()}
+        </p>
       </div>
     </div>
   );
@@ -369,6 +1236,165 @@ const RealEstateProFormaV2: React.FC = () => {
     loanTermYears: 30
   });
 
+  // Add new state for compensation type toggle
+  const [compensationType, setCompensationType] = useState<'promote' | 'sponsorFee'>('promote');
+
+  // Enhanced sponsor fees state with timing options
+  const [sponsorFees, setSponsorFees] = useState({
+    // One-time fees
+    acquisitionFee: 1.5,              // % of total project cost
+    developmentFee: 4,                // % of total project cost (move existing)
+    constructionManagementFee: 3,     // % of hard costs (move existing)
+    dispositionFee: 1.0,              // % of gross sale price
+    
+    // Ongoing fees
+    assetManagementFee: 1.5,          // % of effective gross revenue annually
+    propertyManagementFee: 0,         // % of EGR (optional, for apartments)
+    
+    // Performance-linked structure
+    feeStructureType: 'standard' as 'standard' | 'performance',
+    performanceHurdle: 8,             // % preferred return before full fees
+    reducedFeePercent: 50,            // % of standard fees if below hurdle
+    
+    // Add timing options
+    timing: {
+      deferAcquisitionFee: false,
+      acquisitionFeeDeferralMonths: 0,
+      
+      assetMgmtDeferral: {
+        enabled: false,
+        startYear: 3, // Start collecting in year 3
+        accruedRate: 0, // Interest rate on deferred fees
+      },
+      
+      developmentFeePayout: 'upfront' as 'upfront' | 'milestone' | 'completion',
+      milestones: [
+        { percent: 25, trigger: 'closing' },
+        { percent: 25, trigger: 'construction_start' },
+        { percent: 25, trigger: '50_percent_complete' },
+        { percent: 25, trigger: 'certificate_of_occupancy' }
+      ],
+      
+      dispositionFeeStructure: 'standard' as 'standard' | 'hurdle' | 'waterfall',
+      dispositionHurdle: {
+        minReturn: 12, // Minimum IRR before disposition fee
+        reducedFee: 0.5, // Reduced fee if below hurdle
+      }
+    },
+    
+    // Fee caps for institutional investors
+    feeCaps: {
+      enabled: false,
+      totalFeeCap: 15, // % of equity
+      annualFeeCap: 2, // % of equity per year
+    }
+  });
+
+  // Equity Structure state
+  const [equityStructure, setEquityStructure] = useState({
+    lpEquity: 90,
+    gpEquity: 10,
+    preferredReturn: 8,
+    gpCoinvest: 10,
+    catchUp: true,
+    catchUpPercentage: 50,
+    clawback: true,
+  });
+
+  // Waterfall Tiers
+  const [waterfallTiers, setWaterfallTiers] = useState([
+    { id: '1', minIRR: 0, maxIRR: 8, lpShare: 90, gpShare: 10 },
+    { id: '2', minIRR: 8, maxIRR: 12, lpShare: 80, gpShare: 20 },
+    { id: '3', minIRR: 12, maxIRR: 15, lpShare: 70, gpShare: 30 },
+    { id: '4', minIRR: 15, maxIRR: 100, lpShare: 60, gpShare: 40 },
+  ]);
+
+  const [sponsorPromote, setSponsorPromote] = useState(0);
+  
+  // Fee Comparison State
+  const [showFeeComparison, setShowFeeComparison] = useState(false);
+  const [comparisonScenarios, setComparisonScenarios] = useState<any>(null);
+
+  // Helper functions for deferred fee schedule
+  const hasDeferredFees = (): boolean => {
+    return sponsorFees.timing.deferAcquisitionFee || 
+           sponsorFees.timing.assetMgmtDeferral.enabled ||
+           sponsorFees.timing.developmentFeePayout !== 'upfront';
+  };
+  
+  const calculateDeferredFeeSchedule = () => {
+    // Mock implementation - replace with actual calculations
+    const schedule = [];
+    let deferredBalance = 0;
+    
+    // Year 0 (Closing)
+    const acquisitionFee = formData.purchasePrice * (sponsorFees.acquisitionFee / 100);
+    const developmentFee = (formData.purchasePrice + formData.closingCosts + formData.renovationCosts) * (sponsorFees.developmentFee / 100);
+    
+    if (sponsorFees.timing.deferAcquisitionFee) {
+      deferredBalance += acquisitionFee;
+      schedule.push({
+        year: 0,
+        earned: acquisitionFee + developmentFee,
+        collected: developmentFee,
+        deferred: acquisitionFee,
+        balance: deferredBalance,
+      });
+    } else {
+      schedule.push({
+        year: 0,
+        earned: acquisitionFee + developmentFee,
+        collected: acquisitionFee + developmentFee,
+        deferred: 0,
+        balance: 0,
+      });
+    }
+    
+    // Years 1-5
+    for (let year = 1; year <= 5; year++) {
+      const assetMgmtFee = (formData.monthlyRent * 12) * (sponsorFees.assetManagementFee / 100);
+      let earned = assetMgmtFee;
+      let collected = assetMgmtFee;
+      let deferred = 0;
+      
+      // Handle asset management fee deferral
+      if (sponsorFees.timing.assetMgmtDeferral.enabled && year < sponsorFees.timing.assetMgmtDeferral.startYear) {
+        collected = 0;
+        deferred = assetMgmtFee;
+        deferredBalance += deferred;
+      } else if (year === sponsorFees.timing.assetMgmtDeferral.startYear && deferredBalance > 0) {
+        // Collect accumulated deferred fees
+        collected += deferredBalance;
+        deferredBalance = 0;
+      }
+      
+      // Handle acquisition fee collection if deferred
+      if (sponsorFees.timing.deferAcquisitionFee && year === Math.ceil(sponsorFees.timing.acquisitionFeeDeferralMonths / 12)) {
+        collected += acquisitionFee;
+        deferredBalance -= acquisitionFee;
+      }
+      
+      schedule.push({
+        year,
+        earned,
+        collected,
+        deferred,
+        balance: deferredBalance,
+      });
+    }
+    
+    return schedule;
+  };
+  
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(value);
+  };
+  
   // Load API key from localStorage
   useEffect(() => {
     const savedApiKey = localStorage.getItem('claude_api_key');
@@ -766,11 +1792,72 @@ const RealEstateProFormaV2: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-6">
           {currentScenario ? (
             <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-2 space-y-6">
                 <PropertyForm 
                   data={formData} 
                   onChange={handleFormDataChange}
                   locked={currentScenario.locked}
+                />
+                <EquityStructurePanel
+                  compensationType={compensationType}
+                  setCompensationType={setCompensationType}
+                  sponsorFees={sponsorFees}
+                  setSponsorFees={setSponsorFees}
+                  equityStructure={equityStructure}
+                  setEquityStructure={setEquityStructure}
+                  waterfallTiers={waterfallTiers}
+                  setWaterfallTiers={setWaterfallTiers}
+                  locked={currentScenario.locked}
+                />
+                
+                {/* Fee Comparison Button */}
+                {!showFeeComparison && (
+                  <button
+                    onClick={() => {
+                      // Calculate comparison scenarios
+                      const totalInvestment = formData.purchasePrice + formData.closingCosts + formData.renovationCosts;
+                      const equityRequired = totalInvestment * (formData.downPaymentPercent / 100) + formData.closingCosts + formData.renovationCosts;
+                      
+                      // Mock comparison data - in real implementation, this would be calculated based on actual waterfall
+                      const mockComparison = {
+                        promote: {
+                          lpIRR: 14.5,
+                          lpEquityMultiple: 2.1,
+                          gpCompensation: 1250000
+                        },
+                        sponsorFee: {
+                          lpIRR: 13.2,
+                          lpEquityMultiple: 1.95,
+                          gpCompensation: 980000
+                        },
+                        differential: {
+                          lpIRR: 1.3,
+                          totalGPComp: 270000,
+                          breakEvenIRR: 15.5
+                        }
+                      };
+                      
+                      setComparisonScenarios(mockComparison);
+                      setShowFeeComparison(true);
+                    }}
+                    className="w-full py-2 px-4 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium flex items-center justify-center gap-2"
+                  >
+                    <BarChartIcon size={20} />
+                    Compare Compensation Structures
+                  </button>
+                )}
+                
+                {/* Fee Comparison Component */}
+                <FeeComparisonComponent
+                  showFeeComparison={showFeeComparison}
+                  setShowFeeComparison={setShowFeeComparison}
+                  comparisonScenarios={comparisonScenarios}
+                  calculateFinancing={{ 
+                    equityRequired: formData.purchasePrice * (formData.downPaymentPercent / 100) + formData.closingCosts + formData.renovationCosts,
+                    propertyType: 'multifamily',
+                    holdPeriod: 5
+                  }}
+                  combinedReturns={{ irr: '15.5' }} // Mock IRR value - replace with actual calculation
                 />
               </div>
               <div className="space-y-4">
@@ -780,7 +1867,12 @@ const RealEstateProFormaV2: React.FC = () => {
                   onFieldFocus={handleFieldFocus}
                   onSuggestionApply={handleSuggestionApply}
                 />
-                <ResultsPanel data={formData} />
+                <ResultsPanel 
+                  data={formData} 
+                  compensationType={compensationType}
+                  sponsorFees={sponsorFees}
+                  equityStructure={equityStructure}
+                />
               </div>
             </div>
           ) : (
@@ -792,6 +1884,47 @@ const RealEstateProFormaV2: React.FC = () => {
               </div>
             </div>
           )}
+          
+          {/* Add after the main cash flow table when fee timing is used */}
+          {currentScenario && compensationType === 'sponsorFee' && hasDeferredFees() && (
+              <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
+                <h2 className="text-xl font-semibold mb-4">Deferred Fee Schedule</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2">Year</th>
+                        <th className="text-right py-2">Fees Earned</th>
+                        <th className="text-right py-2">Fees Collected</th>
+                        <th className="text-right py-2">Fees Deferred</th>
+                        <th className="text-right py-2">Deferred Balance</th>
+                        <th className="text-right py-2">LP Cash Flow Impact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {calculateDeferredFeeSchedule().map((row, index) => (
+                        <tr key={index} className="border-b">
+                          <td className="py-2">{row.year === 0 ? 'Closing' : `Year ${row.year}`}</td>
+                          <td className="text-right">{formatCurrency(row.earned)}</td>
+                          <td className="text-right">{formatCurrency(row.collected)}</td>
+                          <td className="text-right text-orange-600">
+                            {row.deferred > 0 ? formatCurrency(row.deferred) : '-'}
+                          </td>
+                          <td className="text-right font-medium">{formatCurrency(row.balance)}</td>
+                          <td className="text-right text-green-600">
+                            {row.deferred > 0 ? `+${formatCurrency(row.deferred)}` : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="mt-4 text-sm text-gray-600">
+                  <p>* Deferring fees improves early cash-on-cash returns and can help achieve investor return hurdles sooner.</p>
+                </div>
+              </div>
+            )}
         </div>
       </div>
 
