@@ -57,7 +57,6 @@ export const AIInsightsIntegration: React.FC<AIInsightsIntegrationProps> = ({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('AI Insights clicked, scenario:', scenario);
           handleShowInsights();
         }}
         type="button"

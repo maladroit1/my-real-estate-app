@@ -45,6 +45,7 @@ import { MetricBreakdown } from "./components/MetricBreakdown";
 import { WaterfallDistribution } from "./components/WaterfallDistribution";
 import { ApiKeyModal } from "./components/ApiKeyModal";
 import { ApiKeyManager } from "./services/ApiKeyManager";
+import { TestAPIButton } from "./components/TestAPIButton";
 import { OnyxLogo } from "./components/OnyxLogo";
 import { AIInsightsIntegration } from "./components/AIInsightsIntegration";
 
@@ -5282,32 +5283,41 @@ export default function App() {
                   )}
                 </div>
               </div>
+              
+              {/* Temporary test button for debugging */}
+              <TestAPIButton />
+              
               {aiEnabled ? (
                 <AIInsightsIntegration
                   scenario={{
-                    name: projectName,
-                    data: {
-                      propertyType,
-                      metrics: {
-                        irr: parseFloat(combinedReturns.irr),
-                        equityMultiple: parseFloat(combinedReturns.equityMultiple),
-                        totalCost: calculateFinancing.totalProjectCost,
-                        equityRequired: calculateFinancing.equityRequired,
-                        avgCashOnCash: parseFloat(combinedReturns.avgCashOnCash),
-                        yieldOnCost: parseFloat(calculateAdditionalMetrics.yieldOnCost)
-                      },
-                      assumptions: {
-                        buildingGFA,
-                        operatingAssumptions,
-                        financingAssumptions: {
-                          constructionLoan,
-                          permanentLoan
-                        },
-                        equityStructure
-                      },
-                      cashFlows: calculateCashFlows?.cashFlows || []
+                    propertyInfo: {
+                      propertyType: propertyType,
+                      address: 'Development Project',
+                      netRentableArea: buildingGFA * 0.85, // Assuming 85% efficiency
+                      units: propertyType === 'apartment' ? unitMix.reduce((sum, unit) => sum + unit.units, 0) : 1
                     },
-                    results: combinedReturns
+                    acquisition: {
+                      purchasePrice: landCost,
+                      closingCosts: (landCost * 0.02), // Assuming 2% closing costs
+                      renovationCosts: hardCosts + softCosts
+                    },
+                    financing: {
+                      loanAmount: permanentLoan.loanAmount,
+                      interestRate: permanentLoan.interestRate,
+                      term: permanentLoan.amortization
+                    },
+                    income: {
+                      baseRent: calculateCashFlows?.year1NOI || 0
+                    },
+                    assumptions: {
+                      vacancy: operatingAssumptions.vacancy,
+                      rentGrowth: operatingAssumptions.rentGrowth,
+                      holdPeriod: operatingAssumptions.holdPeriod,
+                      exitCapRate: operatingAssumptions.capRate
+                    },
+                    targets: {
+                      irr: 15 // Default target
+                    }
                   }}
                   className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-gray-900 font-medium"
                 />
@@ -6020,41 +6030,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Saved Scenarios */}
-        {savedScenarios.length > 0 && (
-          <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold mb-4">Saved Scenarios</h2>
-            <div className="space-y-3">
-              {savedScenarios.map((scenario) => (
-                <div
-                  key={scenario.id}
-                  className="flex justify-between items-center p-3 border border-gray-200 rounded-lg"
-                >
-                  <div>
-                    <p className="font-medium">{scenario.name}</p>
-                    <p className="text-sm text-gray-600">
-                      {new Date(scenario.date).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => loadScenarioV1(scenario)}
-                      className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
-                    >
-                      Load
-                    </button>
-                    <button
-                      onClick={() => deleteScenarioV1(scenario.id)}
-                      className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Save Dialog - Updated to use v2 Scenario Management */}
         {showSaveDialog && (

@@ -21,6 +21,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build"
   },
+  "proxy": "http://localhost:8888",
   "browserslist": {
     "production": [
       ">0.2%",

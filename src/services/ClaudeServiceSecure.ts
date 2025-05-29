@@ -6,11 +6,13 @@ export class ClaudeInsightsServiceSecure {
   
   constructor() {
     // Use relative URL - will work both locally and on Netlify
+    // Using /api/ path which is redirected to /.netlify/functions/ by netlify.toml
     this.apiEndpoint = '/api/claude-api';
   }
   
   async analyzeDeal(request: AnalysisRequest): Promise<DealInsights> {
     const apiKey = ApiKeyManager.getApiKey();
+    
     if (!apiKey) {
       throw new Error('API key required. Please configure your Claude API key.');
     }
@@ -18,6 +20,7 @@ export class ClaudeInsightsServiceSecure {
     const prompt = this.buildAnalysisPrompt(request);
     
     try {
+      
       const response = await fetch(this.apiEndpoint, {
         method: 'POST',
         headers: {
@@ -30,8 +33,10 @@ export class ClaudeInsightsServiceSecure {
         })
       });
 
+      
       if (!response.ok) {
         const error = await response.json();
+        console.error('API error response:', error);
         throw new Error(error.error || 'Failed to get AI insights');
       }
 
