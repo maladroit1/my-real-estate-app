@@ -3116,13 +3116,6 @@ export default function App() {
                 {showMobileMenu ? <CloseIcon size={24} /> : <Menu size={24} />}
               </button>
             </div>
-            <input
-              type="text"
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              placeholder="Project Name"
-              className="mt-3 w-full text-lg font-semibold text-gray-100 bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:border-yellow-500 focus:outline-none transition-colors"
-            />
           </div>
           
           {/* Desktop Header */}
@@ -3138,30 +3131,8 @@ export default function App() {
                   <h1 className="text-xl font-bold text-gray-100">Onyx Pro Forma Calculator</h1>
                   <p className="text-sm text-gray-400">Institutional-Grade Investment Analysis</p>
                 </div>
-                <input
-                  type="text"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  placeholder="Project Name"
-                  className="ml-8 text-lg font-semibold text-gray-100 bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:border-yellow-500 focus:outline-none transition-colors"
-                />
-                {/* v2 Scenario Selector */}
-                {scenarios.length > 0 && (
-                  <select
-                    value={activeScenarioId || ''}
-                    onChange={(e) => e.target.value && loadScenario(e.target.value)}
-                    className="px-4 py-2 bg-gray-800 text-gray-100 border border-gray-700 rounded-lg focus:ring-2 focus:ring-yellow-500 hover:bg-gray-700 transition-colors"
-                  >
-                    <option value="">Select Scenario</option>
-                    {scenarios.map(scenario => (
-                      <option key={scenario.id} value={scenario.id}>
-                        {scenario.name} {scenario.id === activeScenarioId && '(Active)'}
-                      </option>
-                    ))}
-                  </select>
-                )}
                 {activeScenarioId && lastSaved && (
-                  <span className="text-xs text-gray-500">
+                  <span className="ml-4 text-sm text-gray-400">
                     Auto-saved {lastSaved.toLocaleTimeString()}
                   </span>
                 )}
