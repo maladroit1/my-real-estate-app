@@ -230,6 +230,8 @@ export default function App() {
     coreShell: 200,
     tenantImprovements: 50,
     siteWork: 500000,
+    siteWorkPerUnit: 40000, // New: per unit amount
+    siteWorkInputMethod: 'total' as 'total' | 'perUnit', // New: toggle state
     parkingSurface: 5000,
     parkingStructured: 25000,
     landscaping: 10,
@@ -481,9 +483,13 @@ export default function App() {
     promote: any;
     sponsorFee: any;
   } | null>(null);
+  
+  // Tooltip States
+  const [showSiteWorkTooltip, setShowSiteWorkTooltip] = useState(false);
 
   // Validation State
   const [validationWarnings, setValidationWarnings] = useState<any[]>([]);
+  const [siteWorkValidation, setSiteWorkValidation] = useState<string | null>(null);
 
   // Expanded sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -540,6 +546,33 @@ export default function App() {
     setter(parsed);
   };
 
+  // Helper function to get total unit count based on property type
+  const getTotalUnitCount = () => {
+    if (propertyType === 'forSale') {
+      let unitCount = 0;
+      
+      if (unitMix && unitMix.length > 0) {
+        unitCount = unitMix.reduce((sum, unit) => sum + unit.units, 0);
+      } else if (buildingGFA > 0) {
+        const avgUnitSize = salesAssumptions?.avgUnitSize || 2000;
+        unitCount = Math.round(buildingGFA / avgUnitSize);
+      }
+      
+      // Ensure we always have at least 1 unit for calculations
+      return Math.max(1, unitCount);
+    } else if (propertyType === 'apartment') {
+      return unitMix.reduce((sum, unit) => sum + unit.units, 0);
+    }
+    return 1; // For office/retail
+  };
+
+  // Smart detection for when to show per-unit option
+  const shouldShowPerUnitOption = () => {
+    // Show per-unit option for residential property types
+    return ['forSale', 'apartment'].includes(propertyType);
+    // Note: Add 'townhome', 'condo', 'mixedUse' to the list when those property types are added
+  };
+
   // Debounced values for expensive calculations
   const debouncedLandCost = useDebounce(landCost, 300);
   const debouncedBuildingGFA = useDebounce(buildingGFA, 300);
@@ -555,19 +588,25 @@ export default function App() {
         ? Math.round((buildingGFA / 1000) * parkingRatio)
         : 0;
 
+      // Calculate site work based on input method
+      let siteWorkTotal = hardCosts.siteWork;
+      if (shouldShowPerUnitOption() && hardCosts.siteWorkInputMethod === 'perUnit') {
+        siteWorkTotal = hardCosts.siteWorkPerUnit * getTotalUnitCount();
+      }
+
       let hardCostTotal;
       if (propertyType === "forSale") {
         const totalSF =
           salesAssumptions.totalUnits * salesAssumptions.avgUnitSize;
         hardCostTotal =
           (hardCosts.coreShell + hardCosts.tenantImprovements) * totalSF +
-          hardCosts.siteWork +
+          siteWorkTotal + // Use calculated site work total
           parkingSpaces * hardCosts.parkingSurface +
           hardCosts.landscaping * siteAreaSF;
       } else {
         hardCostTotal =
           (hardCosts.coreShell + hardCosts.tenantImprovements) * buildingGFA +
-          hardCosts.siteWork +
+          siteWorkTotal + // Use calculated site work total
           parkingSpaces * hardCosts.parkingSurface +
           hardCosts.landscaping * siteAreaSF;
       }
@@ -596,6 +635,7 @@ export default function App() {
         total: totalBeforeDeveloperFee + developerFee,
         parkingSpaces: parkingSpaces,
         siteAreaSF: siteAreaSF,
+        siteWorkTotal: siteWorkTotal // Add this for reference
       };
     } catch (e) {
       console.error("Error calculating total cost:", e);
@@ -606,6 +646,7 @@ export default function App() {
         total: 0,
         parkingSpaces: 0,
         siteAreaSF: 0,
+        siteWorkTotal: 0
       };
     }
   }, [
@@ -618,6 +659,7 @@ export default function App() {
     includeParking,
     propertyType,
     salesAssumptions,
+    unitMix
   ]);
 
   // Calculate Financing
@@ -1134,10 +1176,59 @@ export default function App() {
     }));
   }, [propertyType]);
 
+  // Set defaults for residential projects
+  useEffect(() => {
+    if (shouldShowPerUnitOption() && hardCosts.siteWorkPerUnit === 40000) {
+      // When switching to residential property types, default to per-unit input method
+      setHardCosts(prev => ({
+        ...prev,
+        siteWorkInputMethod: 'perUnit' // Default to per-unit for residential
+      }));
+    }
+  }, [propertyType, hardCosts.siteWorkPerUnit]);
+
   // Sync construction loan term with timeline
   useEffect(() => {
     setConstructionLoan((prev) => ({ ...prev, term: timeline.construction }));
   }, [timeline.construction]);
+
+  // Sync site work values when switching input methods or unit count changes
+  useEffect(() => {
+    if (shouldShowPerUnitOption()) {
+      if (hardCosts.siteWorkInputMethod === 'perUnit') {
+        // When in per unit mode, update the total for display purposes
+        const newTotal = hardCosts.siteWorkPerUnit * getTotalUnitCount();
+        if (Math.abs(newTotal - hardCosts.siteWork) > 1) { // Avoid infinite loops
+          setHardCosts(prev => ({ ...prev, siteWork: newTotal }));
+        }
+      } else {
+        // When switching to total mode, calculate per unit for reference
+        const unitCount = getTotalUnitCount();
+        if (unitCount > 0) {
+          const perUnit = Math.round(hardCosts.siteWork / unitCount);
+          if (Math.abs(perUnit - hardCosts.siteWorkPerUnit) > 1) {
+            setHardCosts(prev => ({ ...prev, siteWorkPerUnit: perUnit }));
+          }
+        }
+      }
+    }
+  }, [hardCosts.siteWorkInputMethod, hardCosts.siteWorkPerUnit, hardCosts.siteWork, propertyType, unitMix, buildingGFA, salesAssumptions.avgUnitSize]);
+
+  // Add validation check for site work
+  useEffect(() => {
+    if (shouldShowPerUnitOption() && hardCosts.siteWorkInputMethod === 'perUnit') {
+      const unitCount = getTotalUnitCount();
+      if (unitCount === 0) {
+        setSiteWorkValidation('Please define units before using per-unit pricing');
+      } else if (unitCount === 1 && buildingGFA > 3000) {
+        setSiteWorkValidation('Warning: Only 1 unit calculated. Check unit mix configuration.');
+      } else {
+        setSiteWorkValidation(null);
+      }
+    } else {
+      setSiteWorkValidation(null);
+    }
+  }, [propertyType, hardCosts.siteWorkInputMethod, unitMix, buildingGFA, salesAssumptions.avgUnitSize]);
 
   // Load saved scenarios on mount
   useEffect(() => {
@@ -2259,6 +2350,10 @@ export default function App() {
         ["DEVELOPMENT COSTS"],
         ["Land Cost", landCost],
         ["Hard Costs", calculateTotalCost.hardCost],
+        ["Site Work", calculateTotalCost.siteWorkTotal],
+        shouldShowPerUnitOption() && hardCosts.siteWorkInputMethod === 'perUnit' 
+          ? ["Site Work Detail", `${formatCurrency(hardCosts.siteWorkPerUnit)}/unit × ${getTotalUnitCount()} units`]
+          : ["", ""],
         ["Soft Costs", calculateTotalCost.softCost],
         ["Developer Fee", calculateTotalCost.developerFee],
         [""],
@@ -2414,6 +2509,10 @@ DEVELOPMENT SUMMARY
 Total Development Cost: ${formatCurrency(calculateTotalCost.total)}
 - Land Cost: ${formatCurrency(landCost)}
 - Hard Costs: ${formatCurrency(calculateTotalCost.hardCost)}
+  ${shouldShowPerUnitOption() && hardCosts.siteWorkInputMethod === 'perUnit' 
+    ? `• Site Work: ${formatCurrency(hardCosts.siteWorkPerUnit)}/unit × ${getTotalUnitCount()} units = ${formatCurrency(calculateTotalCost.siteWorkTotal)}`
+    : `• Site Work: ${formatCurrency(calculateTotalCost.siteWorkTotal)}`
+  }
 - Soft Costs: ${formatCurrency(calculateTotalCost.softCost)}
 - Developer Fee: ${formatCurrency(calculateTotalCost.developerFee)}
 
@@ -3310,19 +3409,189 @@ ${
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
+                      {/* Site Work Input with Toggle */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Site Work
-                        </label>
-                        <input
-                          type="text"
-                          value={formatNumber(hardCosts.siteWork)}
-                          onChange={(e) => {
-                            const parsed = parseFormattedNumber(e.target.value);
-                            setHardCosts({ ...hardCosts, siteWork: parsed });
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="flex items-center gap-1">
+                            <label className="block text-sm font-medium text-gray-700">
+                              Site Work
+                            </label>
+                            {shouldShowPerUnitOption() && (
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onMouseEnter={() => setShowSiteWorkTooltip(true)}
+                                  onMouseLeave={() => setShowSiteWorkTooltip(false)}
+                                  className="text-gray-400 hover:text-gray-600"
+                                >
+                                  <Info size={14} />
+                                </button>
+                                
+                                {showSiteWorkTooltip && (
+                                  <div className="absolute z-10 left-0 top-6 w-80 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg">
+                                    <div className="font-semibold mb-2">Typical Site Work Costs per Unit:</div>
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between">
+                                        <span>• Townhomes (attached):</span>
+                                        <span>$15,000 - $25,000</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span>• Single-family (production):</span>
+                                        <span>$25,000 - $40,000</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span>• Single-family (custom):</span>
+                                        <span>$40,000 - $80,000</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span>• Condos (wrap/podium):</span>
+                                        <span>$10,000 - $20,000</span>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 pt-2 border-t border-gray-700 text-gray-300">
+                                      Includes utilities, grading, roads, and common areas. Varies by site conditions and local requirements.
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {/* Show toggle for residential projects */}
+                          {shouldShowPerUnitOption() && (
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setHardCosts({...hardCosts, siteWorkInputMethod: 'total'})}
+                                className={`px-2 py-0.5 text-xs rounded ${
+                                  hardCosts.siteWorkInputMethod === 'total'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                }`}
+                              >
+                                Total
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setHardCosts({...hardCosts, siteWorkInputMethod: 'perUnit'})}
+                                className={`px-2 py-0.5 text-xs rounded ${
+                                  hardCosts.siteWorkInputMethod === 'perUnit'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                }`}
+                              >
+                                Per Unit
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {hardCosts.siteWorkInputMethod === 'total' || !shouldShowPerUnitOption() ? (
+                          <input
+                            type="text"
+                            value={formatNumber(hardCosts.siteWork)}
+                            onChange={(e) => {
+                              const parsed = parseFormattedNumber(e.target.value);
+                              if (!isNaN(parsed)) {
+                                setHardCosts({...hardCosts, siteWork: parsed});
+                              }
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Total amount"
+                          />
+                        ) : (
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={formatNumber(hardCosts.siteWorkPerUnit)}
+                              onChange={(e) => {
+                                const parsed = parseFormattedNumber(e.target.value);
+                                if (!isNaN(parsed)) {
+                                  setHardCosts({...hardCosts, siteWorkPerUnit: parsed});
+                                }
+                              }}
+                              className="w-full px-3 py-2 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Per unit"
+                            />
+                            <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">
+                              /unit
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Show calculated total when using per unit */}
+                        {shouldShowPerUnitOption() && hardCosts.siteWorkInputMethod === 'perUnit' && (
+                          <div className="mt-1 text-xs text-gray-600">
+                            Total: {formatCurrency(hardCosts.siteWorkPerUnit * getTotalUnitCount())} 
+                            ({formatNumber(getTotalUnitCount())} units × {formatCurrency(hardCosts.siteWorkPerUnit)}/unit)
+                          </div>
+                        )}
+                        
+                        {/* Add quick set buttons when in per-unit mode */}
+                        {shouldShowPerUnitOption() && hardCosts.siteWorkInputMethod === 'perUnit' && (
+                          <div className="mt-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-600">Quick set:</span>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setHardCosts({...hardCosts, siteWorkPerUnit: 15000})}
+                                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                                    hardCosts.siteWorkPerUnit === 15000
+                                      ? 'bg-blue-500 text-white border-blue-500'
+                                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                                  }`}
+                                  title="Typical for attached townhomes"
+                                >
+                                  $15k
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setHardCosts({...hardCosts, siteWorkPerUnit: 25000})}
+                                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                                    hardCosts.siteWorkPerUnit === 25000
+                                      ? 'bg-blue-500 text-white border-blue-500'
+                                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                                  }`}
+                                  title="Typical for production homes"
+                                >
+                                  $25k
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setHardCosts({...hardCosts, siteWorkPerUnit: 40000})}
+                                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                                    hardCosts.siteWorkPerUnit === 40000
+                                      ? 'bg-blue-500 text-white border-blue-500'
+                                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                                  }`}
+                                  title="Typical for quality single-family"
+                                >
+                                  $40k
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setHardCosts({...hardCosts, siteWorkPerUnit: 60000})}
+                                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                                    hardCosts.siteWorkPerUnit === 60000
+                                      ? 'bg-blue-500 text-white border-blue-500'
+                                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                                  }`}
+                                  title="Typical for custom homes"
+                                >
+                                  $60k
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Site Work Validation Message */}
+                        {siteWorkValidation && (
+                          <div className="mt-2 flex items-center gap-1 text-xs">
+                            <AlertTriangle size={12} className="text-amber-500" />
+                            <span className="text-amber-600">{siteWorkValidation}</span>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
