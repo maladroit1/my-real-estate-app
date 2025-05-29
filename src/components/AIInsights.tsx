@@ -2,6 +2,8 @@ import React, { useState, useCallback } from 'react';
 import { Brain, TrendingUp, AlertTriangle, Lightbulb, BarChart3, Loader2, X } from 'lucide-react';
 import { ClaudeInsightsService, DealInsights, AnalysisRequest } from '../services/ClaudeService';
 import { ClaudeInsightsServiceSecure } from '../services/ClaudeServiceSecure';
+import { ApiKeyManager } from '../services/ApiKeyManager';
+import { ApiKeyModal } from './ApiKeyModal';
 
 interface AIInsightsProps {
   scenario: any; // Will be replaced with proper Scenario type
@@ -77,20 +79,24 @@ export const AIInsights: React.FC<AIInsightsProps> = ({ scenario, apiKey, onClos
   const [insights, setInsights] = useState<DealInsights | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [focusAreas, setFocusAreas] = useState<('returns' | 'risks' | 'market' | 'optimization')[]>([
     'returns', 'risks', 'optimization'
   ]);
 
   const getInsights = useCallback(async () => {
+    // Check if API key exists
+    if (!ApiKeyManager.hasApiKey() && !apiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     
     try {
-      // Use secure service if deployed (no apiKey), otherwise use direct service
-      const isDeployed = window.location.hostname !== 'localhost';
-      const claudeService = isDeployed || !apiKey
-        ? new ClaudeInsightsServiceSecure()
-        : new ClaudeInsightsService(apiKey);
+      // Always use secure service now
+      const claudeService = new ClaudeInsightsServiceSecure();
         
       const request: AnalysisRequest = {
         scenario,
@@ -100,11 +106,23 @@ export const AIInsights: React.FC<AIInsightsProps> = ({ scenario, apiKey, onClos
       const result = await claudeService.analyzeDeal(request);
       setInsights(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to get AI insights');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get AI insights';
+      setError(errorMessage);
+      
+      // If error is about API key, show modal
+      if (errorMessage.includes('API key')) {
+        setShowApiKeyModal(true);
+      }
     } finally {
       setLoading(false);
     }
   }, [scenario, apiKey, focusAreas]);
+  
+  const handleApiKeySubmit = (newApiKey: string) => {
+    setShowApiKeyModal(false);
+    // Retry the analysis with the new API key
+    getInsights();
+  };
 
   const toggleFocusArea = (area: 'returns' | 'risks' | 'market' | 'optimization') => {
     setFocusAreas(prev => 
@@ -125,7 +143,14 @@ export const AIInsights: React.FC<AIInsightsProps> = ({ scenario, apiKey, onClos
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6 relative">
+    <>
+      <ApiKeyModal 
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onSubmit={handleApiKeySubmit}
+      />
+      
+      <div className="bg-white rounded-lg shadow-lg p-6 relative">
       {onClose && (
         <button
           onClick={onClose}
@@ -255,6 +280,7 @@ export const AIInsights: React.FC<AIInsightsProps> = ({ scenario, apiKey, onClos
         </div>
       )}
     </div>
+    </>
   );
 };
 

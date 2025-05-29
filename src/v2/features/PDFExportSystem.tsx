@@ -22,6 +22,7 @@ import {
   FileText, Download, X, Eye, Loader, CheckCircle,
   TrendingUp, DollarSign, Building2, Calendar
 } from 'lucide-react';
+import { OnyxLogo } from '../../components/OnyxLogo';
 
 // ============= TypeScript Types for PDF =============
 export interface PDFConfig {
@@ -126,6 +127,19 @@ export interface AssumptionsData {
     incomeTax: number;
     depreciation: number;
   };
+  partnership: {
+    lpEquity: number;
+    gpEquity: number;
+    preferredReturn: number;
+    sponsorPromote: number;
+    catchUp: boolean;
+    waterfallTiers: Array<{
+      minIRR: number;
+      maxIRR: number;
+      lpShare: number;
+      gpShare: number;
+    }>;
+  };
 }
 
 export interface ChartData {
@@ -159,9 +173,9 @@ const getStyles = (template: string) => StyleSheet.create({
   },
   coverPage: {
     flexDirection: 'column',
-    backgroundColor: template === 'bank' ? '#004080' : template === 'investor' ? '#1a1a1a' : '#1e40af',
+    backgroundColor: '#1a1a1a', // Onyx black
     padding: template === 'bank' ? 80 : 60,
-    color: '#FFFFFF'
+    color: '#efece4' // Onyx cream
   },
   header: {
     flexDirection: 'row',
@@ -598,22 +612,32 @@ const InvestmentReport: React.FC<{
       {/* Cover Page */}
       <Page size="A4" style={styles.coverPage}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ fontSize: 36, fontWeight: 'bold', marginBottom: 20 }}>
+          {/* Onyx Logo Text */}
+          <View style={{ marginBottom: 40, alignItems: 'center' }}>
+            <Text style={{ fontSize: 48, fontWeight: 'bold', letterSpacing: 3, color: '#efece4' }}>
+              ONYX
+            </Text>
+            <Text style={{ fontSize: 14, letterSpacing: 2, marginTop: 5, color: '#d4af37' }}>
+              DEVELOPMENT
+            </Text>
+          </View>
+          
+          <Text style={{ fontSize: 36, fontWeight: 'bold', marginBottom: 20, color: '#efece4' }}>
             {config.template === 'bank' ? 'LOAN UNDERWRITING REPORT' : 
              config.template === 'investor' ? 'INVESTMENT OPPORTUNITY' : 
              'INVESTMENT ANALYSIS'}
           </Text>
-          <Text style={{ fontSize: 28, marginBottom: 40 }}>
+          <Text style={{ fontSize: 28, marginBottom: 40, color: '#d4af37' }}>
             {project.name}
           </Text>
           <View style={{ marginBottom: 60 }}>
-            <Text style={{ fontSize: 16, marginBottom: 10 }}>{project.address}</Text>
-            <Text style={{ fontSize: 14 }}>{scenario.name}</Text>
+            <Text style={{ fontSize: 16, marginBottom: 10, color: '#efece4' }}>{project.address}</Text>
+            <Text style={{ fontSize: 14, color: '#efece4' }}>{scenario.name}</Text>
           </View>
           <View style={{ marginTop: 'auto', alignItems: 'center' }}>
-            <Text style={{ fontSize: 14, marginBottom: 5 }}>{config.companyName}</Text>
-            <Text style={{ fontSize: 12 }}>Prepared by: {config.preparedBy}</Text>
-            <Text style={{ fontSize: 12 }}>{formatDate(new Date())}</Text>
+            <Text style={{ fontSize: 14, marginBottom: 5, color: '#efece4' }}>{config.companyName || 'Onyx Development'}</Text>
+            <Text style={{ fontSize: 12, color: '#efece4' }}>Prepared by: {config.preparedBy}</Text>
+            <Text style={{ fontSize: 12, color: '#efece4' }}>{formatDate(new Date())}</Text>
           </View>
         </View>
         {config.confidential && (
@@ -1046,6 +1070,52 @@ const InvestmentReport: React.FC<{
             </View>
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.boldText}>Partnership Structure</Text>
+            <View style={styles.table}>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>LP Equity</Text>
+                <Text style={[styles.tableCell, { textAlign: 'right' }]}>{formatPercent(sections.assumptions.partnership.lpEquity)}</Text>
+              </View>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>GP Equity</Text>
+                <Text style={[styles.tableCell, { textAlign: 'right' }]}>{formatPercent(sections.assumptions.partnership.gpEquity)}</Text>
+              </View>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Preferred Return</Text>
+                <Text style={[styles.tableCell, { textAlign: 'right' }]}>{formatPercent(sections.assumptions.partnership.preferredReturn)}</Text>
+              </View>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Sponsor Promote</Text>
+                <Text style={[styles.tableCell, { textAlign: 'right' }]}>{formatPercent(sections.assumptions.partnership.sponsorPromote)}</Text>
+              </View>
+              {sections.assumptions.partnership.catchUp && (
+                <View style={styles.tableRow}>
+                  <Text style={[styles.tableCell, { flex: 2 }]}>GP Catch-up</Text>
+                  <Text style={[styles.tableCell, { textAlign: 'right' }]}>Enabled</Text>
+                </View>
+              )}
+            </View>
+            
+            {sections.assumptions.partnership.waterfallTiers.length > 0 && (
+              <View style={{ marginTop: 10 }}>
+                <Text style={styles.boldText}>Waterfall Tiers</Text>
+                <View style={styles.table}>
+                  {sections.assumptions.partnership.waterfallTiers.map((tier, index) => (
+                    <View key={index} style={styles.tableRow}>
+                      <Text style={[styles.tableCell, { flex: 2 }]}>
+                        Tier {index + 1} ({tier.minIRR}%-{tier.maxIRR}%)
+                      </Text>
+                      <Text style={[styles.tableCell, { textAlign: 'right' }]}>
+                        LP: {tier.lpShare}% / GP: {tier.gpShare}%
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+          </View>
+
           <View style={styles.footer}>
             <Text>Page 5</Text>
             <Text>{config.confidential ? 'CONFIDENTIAL' : config.companyName}</Text>
@@ -1190,7 +1260,7 @@ export const PDFExportSystem: React.FC<{
     includeSensitivityAnalysis: true,
     includeAssumptions: true,
     includeCharts: true,
-    companyName: 'Real Estate Investment Partners',
+    companyName: 'Onyx Development',
     preparedBy: 'Investment Analysis Team',
     confidential: true
   });
@@ -1320,6 +1390,14 @@ export const PDFExportSystem: React.FC<{
           propertyTax: 1.25,
           incomeTax: 35,
           depreciation: 27.5
+        },
+        partnership: {
+          lpEquity: 90,
+          gpEquity: 10,
+          preferredReturn: 8,
+          sponsorPromote: 20,
+          catchUp: true,
+          waterfallTiers: []
         }
       }
     };

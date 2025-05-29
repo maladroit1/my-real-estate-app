@@ -33,9 +33,17 @@ import {
   X,
   BarChart as BarChartIcon,
   Target,
+  Users,
 } from "lucide-react";
 import { calculateIRR, formatIRR } from "./utils/irrCalculator";
 import FormulaViewer from "./components/FormulaViewerSimple";
+import { EquitySlider } from "./components/EquitySlider";
+import { MetricBreakdown } from "./components/MetricBreakdown";
+import { WaterfallDistribution } from "./components/WaterfallDistribution";
+import { ApiKeyModal } from "./components/ApiKeyModal";
+import { ApiKeyManager } from "./services/ApiKeyManager";
+import { OnyxLogo } from "./components/OnyxLogo";
+import { AIInsightsIntegration } from "./components/AIInsightsIntegration";
 
 // Type definitions
 interface PropertyType {
@@ -202,7 +210,7 @@ const deleteScenarioFromDB = async (id: string): Promise<void> => {
 export default function App() {
   // Property Types
   const propertyTypes: Record<string, PropertyType> = {
-    office: { name: "Office", icon: Briefcase, color: "bg-blue-500" },
+    office: { name: "Office", icon: Briefcase, color: "bg-yellow-500" },
     retail: { name: "Retail", icon: ShoppingCart, color: "bg-green-500" },
     apartment: { name: "Apartment", icon: Building, color: "bg-purple-500" },
     forSale: { name: "For-Sale", icon: Home, color: "bg-orange-500" },
@@ -295,14 +303,15 @@ export default function App() {
     catchUp: true,
     catchUpPercentage: 50,
     clawback: true,
+    sponsorPromote: 20,
   });
 
   // Waterfall Tiers
   const [waterfallTiers, setWaterfallTiers] = useState([
-    { minIRR: 0, maxIRR: 8, lpShare: 90, gpShare: 10 },
-    { minIRR: 8, maxIRR: 12, lpShare: 80, gpShare: 20 },
-    { minIRR: 12, maxIRR: 15, lpShare: 70, gpShare: 30 },
-    { minIRR: 15, maxIRR: 100, lpShare: 60, gpShare: 40 },
+    { id: '1', minIRR: 0, maxIRR: 8, lpShare: 90, gpShare: 10 },
+    { id: '2', minIRR: 8, maxIRR: 12, lpShare: 80, gpShare: 20 },
+    { id: '3', minIRR: 12, maxIRR: 15, lpShare: 70, gpShare: 30 },
+    { id: '4', minIRR: 15, maxIRR: 100, lpShare: 60, gpShare: 40 },
   ]);
 
   // Operating Assumptions
@@ -556,11 +565,19 @@ export default function App() {
     riskAnalysis: false,
     distributions: false,
     validation: false,
+    waterfall: true,
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
+
+  // Metric breakdown states
+  const [activeMetricBreakdown, setActiveMetricBreakdown] = useState<string | null>(null);
+  
+  // API Key Modal state
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(true);
 
   // Format currency
   const formatCurrency = (value: number | null | undefined) => {
@@ -601,6 +618,7 @@ export default function App() {
   const debouncedHardCosts = useDebounce(hardCosts, 300);
   const debouncedSoftCosts = useDebounce(softCosts, 300);
   const debouncedOperatingAssumptions = useDebounce(operatingAssumptions, 300);
+  const debouncedEquityStructure = useDebounce(equityStructure, 200);
 
   // Calculate total land cost including parcels
   const calculateLandCost = useMemo(() => {
@@ -763,11 +781,18 @@ export default function App() {
         calculateTotalCost.total + constructionInterest + loanFees;
       const equityRequired = totalProjectCost - constructionLoanAmount;
 
-      const gpCoinvestAmount =
-        (equityRequired * equityStructure.gpCoinvest) / 100;
-      const lpEquityAmount =
-        equityRequired * (equityStructure.lpEquity / 100) - gpCoinvestAmount;
-      const gpPromoteEquity = equityRequired * (equityStructure.gpEquity / 100);
+      // Calculate equity amounts based on LP/GP split
+      const lpEquityPercent = debouncedEquityStructure.lpEquity / 100;
+      const gpEquityPercent = debouncedEquityStructure.gpEquity / 100;
+      
+      // GP co-invest is only relevant if GP has equity participation
+      const gpCoinvestAmount = gpEquityPercent > 0 
+        ? (equityRequired * gpEquityPercent * debouncedEquityStructure.gpCoinvest / 100)
+        : 0;
+      
+      // Calculate the actual LP and GP amounts
+      const lpEquityAmount = equityRequired * lpEquityPercent;
+      const gpPromoteEquity = equityRequired * gpEquityPercent - gpCoinvestAmount;
 
       return {
         constructionLoanAmount,
@@ -778,7 +803,7 @@ export default function App() {
         lpEquity: Math.max(0, lpEquityAmount),
         gpEquity: Math.max(0, gpPromoteEquity),
         gpCoinvest: Math.max(0, gpCoinvestAmount),
-        totalGPCommitment: gpPromoteEquity + gpCoinvestAmount,
+        totalGPCommitment: Math.max(0, gpPromoteEquity + gpCoinvestAmount),
         avgOutstandingBalance,
         constructionMonths,
       };
@@ -798,7 +823,7 @@ export default function App() {
         constructionMonths: 0,
       };
     }
-  }, [calculateTotalCost, constructionLoan, equityStructure, timeline]);
+  }, [calculateTotalCost, constructionLoan, debouncedEquityStructure, timeline]);
 
   // Calculate NOI and Cash Flows
   const calculateCashFlows = useMemo(() => {
@@ -1294,6 +1319,18 @@ export default function App() {
     }
   }, []);
 
+  // Check for API key on mount
+  useEffect(() => {
+    if (ApiKeyManager.shouldPromptForKey()) {
+      setShowApiKeyModal(true);
+    }
+    
+    // Check if AI should be disabled
+    if (ApiKeyManager.hasDeclined() || !ApiKeyManager.hasApiKey()) {
+      setAiEnabled(false);
+    }
+  }, []);
+
   // Validation
   useEffect(() => {
     const warnings: any[] = [];
@@ -1530,12 +1567,12 @@ export default function App() {
       const distributions = { lp: 0, gp: 0 };
 
       // Calculate LP and GP equity amounts
-      const lpCapital = initialEquity * (equityStructure.lpEquity / 100);
-      const gpCapital = initialEquity * (equityStructure.gpEquity / 100);
-      const gpCoinvestment = gpCapital * (equityStructure.gpCoinvest / 100);
+      const lpCapital = initialEquity * (debouncedEquityStructure.lpEquity / 100);
+      const gpCapital = initialEquity * (debouncedEquityStructure.gpEquity / 100);
+      const gpCoinvestment = gpCapital * (debouncedEquityStructure.gpCoinvest / 100);
 
       // Step 1: Preferred Return (using compound interest)
-      const preferredRate = equityStructure.preferredReturn / 100;
+      const preferredRate = debouncedEquityStructure.preferredReturn / 100;
       const lpPreferredAmount = lpCapital * (Math.pow(1 + preferredRate, operatingAssumptions.holdPeriod) - 1);
       const gpPreferredAmount = gpCoinvestment * (Math.pow(1 + preferredRate, operatingAssumptions.holdPeriod) - 1);
 
@@ -1552,7 +1589,7 @@ export default function App() {
       }
 
       // Step 2: Catch-up
-      if (equityStructure.catchUp && remainingCashFlow > 0) {
+      if (debouncedEquityStructure.catchUp && remainingCashFlow > 0) {
         // GP catches up to 20% of total distributions (typical promote)
         const targetGPShare = 0.20;
         const totalDistributedSoFar = distributions.lp + distributions.gp;
@@ -1562,7 +1599,7 @@ export default function App() {
         const catchUpAmount = Math.min(
           remainingCashFlow,
           gpCatchUpNeeded,
-          remainingCashFlow * (equityStructure.catchUpPercentage / 100)
+          remainingCashFlow * (debouncedEquityStructure.catchUpPercentage / 100)
         );
         distributions.gp += catchUpAmount;
         remainingCashFlow -= catchUpAmount;
@@ -1582,15 +1619,19 @@ export default function App() {
         }
       }
 
-      const lpShare = equityStructure.lpEquity / 100;
-      const gpShare = equityStructure.gpEquity / 100;
+      // Apply sponsor promote to GP distributions
+      const sponsorPromoteFee = distributions.gp * (debouncedEquityStructure.sponsorPromote / 100);
+      const gpReturnWithPromote = distributions.gp + sponsorPromoteFee;
+      
+      const lpShare = debouncedEquityStructure.lpEquity / 100;
+      const gpShare = debouncedEquityStructure.gpEquity / 100;
       const lpIRR =
         totalDistributions > 0 && lpShare > 0
           ? (irr * (distributions.lp / totalDistributions)) / lpShare
           : 0;
       const gpIRR =
         totalDistributions > 0 && gpShare > 0
-          ? (irr * (distributions.gp / totalDistributions)) / gpShare
+          ? (irr * (gpReturnWithPromote / totalDistributions)) / gpShare
           : 0;
 
       return {
@@ -1600,11 +1641,12 @@ export default function App() {
           : "0.00",
         totalReturn: totalDistributions,
         lpReturn: distributions.lp,
-        gpReturn: distributions.gp,
+        gpReturn: gpReturnWithPromote,
         lpIRR: isFinite(lpIRR) ? lpIRR.toFixed(2) : "0.00",
         gpIRR: isFinite(gpIRR) ? gpIRR.toFixed(2) : "0.00",
         paybackPeriod: paybackPeriod,
         irrMessage: irrResult.message,
+        sponsorPromoteFee: sponsorPromoteFee,
       };
     } catch (e) {
       console.error("Error calculating returns:", e);
@@ -1617,12 +1659,13 @@ export default function App() {
         lpIRR: "0.00",
         gpIRR: "0.00",
         paybackPeriod: 0,
+        sponsorPromoteFee: 0,
       };
     }
   }, [
     calculateCashFlows,
     waterfallTiers,
-    equityStructure,
+    debouncedEquityStructure,
     operatingAssumptions.holdPeriod,
   ]);
 
@@ -1799,6 +1842,120 @@ export default function App() {
       yearByYear
     };
   }, [propertyType, cottonwoodHeights.tif]);
+
+  // Prepare metric breakdown data
+  const getMetricBreakdownData = (metric: string) => {
+    switch (metric) {
+      case 'Project IRR':
+        return {
+          cashFlows: calculateCashFlows?.cashFlows || [],
+          initialEquity: Math.abs(calculateCashFlows?.cashFlows?.[0]?.cashFlow || 0),
+          npvSensitivity: Array.from({ length: 21 }, (_, i) => {
+            const rate = i;
+            const npv = calculateCashFlows?.cashFlows?.reduce((sum, cf, index) => {
+              return sum + (cf.cashFlow || 0) / Math.pow(1 + rate / 100, index);
+            }, 0) || 0;
+            return { rate, npv };
+          })
+        };
+      
+      case 'Equity Multiple':
+        const initialEquity = Math.abs(calculateCashFlows?.cashFlows?.[0]?.cashFlow || 0);
+        const cashDistributions = calculateCashFlows?.cashFlows?.slice(1)
+          .reduce((sum, cf) => sum + (cf.cashFlow || 0) - (cf.exitProceeds || 0), 0) || 0;
+        const exitProceeds = calculateCashFlows?.cashFlows?.[calculateCashFlows.cashFlows.length - 1]?.exitProceeds || 0;
+        const totalDistributions = cashDistributions + exitProceeds;
+        
+        return {
+          initialEquity,
+          cashDistributions,
+          exitProceeds,
+          totalDistributions,
+          equityMultiple: initialEquity > 0 ? totalDistributions / initialEquity : 0,
+          distributions: calculateCashFlows?.cashFlows?.slice(1).map((cf, i) => ({
+            label: i === calculateCashFlows.cashFlows.length - 2 ? `Year ${i + 1} (Exit)` : `Year ${i + 1}`,
+            amount: cf.cashFlow || 0
+          })) || [],
+          // Include waterfall breakdown
+          lpDistributions: combinedReturns.lpReturn,
+          gpDistributions: combinedReturns.gpReturn,
+          sponsorPromote: combinedReturns.sponsorPromoteFee || 0,
+          waterfallTiers: waterfallTiers
+        };
+      
+      case 'Total Development Cost':
+        return {
+          costBreakdown: {
+            'Land Cost': calculateLandCost,
+            'Hard Costs': calculateTotalCost.hardCost,
+            'Soft Costs': calculateTotalCost.softCost,
+            'Construction Interest': calculateFinancing.constructionInterest,
+            'Loan Fees': calculateFinancing.loanFees
+          },
+          total: calculateFinancing.totalProjectCost,
+          metrics: {
+            costPerSF: buildingGFA > 0 ? calculateFinancing.totalProjectCost / buildingGFA : 0,
+            costPerUnit: propertyType === 'apartment' && (unitMix.studios + unitMix.oneBed + unitMix.twoBed + unitMix.threeBed) > 0 ? calculateFinancing.totalProjectCost / (unitMix.studios + unitMix.oneBed + unitMix.twoBed + unitMix.threeBed) : null
+          }
+        };
+      
+      case 'Equity Required':
+        return {
+          totalProjectCost: calculateFinancing.totalProjectCost,
+          debtAmount: calculateFinancing.constructionLoanAmount,
+          equityRequired: calculateFinancing.equityRequired,
+          constructionInterest: calculateFinancing.constructionInterest,
+          loanFees: calculateFinancing.loanFees,
+          ltc: constructionLoan.ltc,
+          lpEquity: calculateFinancing.lpEquity,
+          gpEquity: calculateFinancing.totalGPCommitment,
+          lpPercent: equityStructure.lpEquity,
+          gpPercent: equityStructure.gpEquity
+        };
+      
+      case 'Avg Cash-on-Cash':
+        const annualReturns = calculateCashOnCashReturns || [];
+        return {
+          annualReturns: annualReturns.map(ret => ({
+            year: ret.year,
+            cashOnCash: ret.cashOnCash,
+            cashFlow: calculateCashFlows?.cashFlows?.[ret.year]?.cashFlow || 0,
+            initialEquity: Math.abs(calculateCashFlows?.cashFlows?.[0]?.cashFlow || 0)
+          })),
+          cumulativeReturns: annualReturns.map((ret, i) => ({
+            year: ret.year,
+            cumulative: ret.cumulativeCashOnCash
+          }))
+        };
+      
+      case 'Yield on Cost':
+        const stabilizedNOI = calculateCashFlows?.cashFlows?.[1]?.noi || 0;
+        const grossRevenue = calculateCashFlows?.cashFlows?.[1]?.grossRevenue || 
+          ((buildingGFA * grossBuildingEfficiency / 100) * operatingAssumptions.rentPSF);
+        const vacancyLoss = grossRevenue * (operatingAssumptions.vacancy / 100);
+        const effectiveGrossIncome = grossRevenue - vacancyLoss;
+        const operatingExpenses = (buildingGFA * grossBuildingEfficiency / 100) * operatingAssumptions.opex;
+        
+        return {
+          stabilizedNOI,
+          totalCost: calculateFinancing.totalProjectCost,
+          noiBreakdown: {
+            grossRevenue,
+            vacancyRate: operatingAssumptions.vacancy,
+            vacancyLoss,
+            effectiveGrossIncome,
+            operatingExpenses
+          },
+          comparisons: {
+            marketCapRate: operatingAssumptions.capRate,
+            developmentSpread: calculateAdditionalMetrics.developmentSpread
+          }
+        };
+      
+      default:
+        return {};
+    }
+  };
 
   // Cross-Subsidization Analysis
   const calculateCrossSubsidy = useMemo(() => {
@@ -2936,25 +3093,35 @@ export default function App() {
   }, [autoSaveEnabled, activeScenarioId, scenarios]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-start mb-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-4 mb-2">
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-50 bg-gray-900 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              {/* Onyx Logo */}
+              <OnyxLogo 
+                height={40} 
+                className="hover:scale-105 transition-transform cursor-pointer"
+              />
+              <div className="border-l border-gray-700 pl-6 flex items-center gap-4">
+                <div>
+                  <h1 className="text-xl font-bold text-gray-100">Onyx Pro Forma Calculator</h1>
+                  <p className="text-sm text-gray-400">Institutional-Grade Investment Analysis</p>
+                </div>
                 <input
                   type="text"
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
-                  className="text-3xl font-bold text-gray-900 bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none transition-colors"
+                  placeholder="Project Name"
+                  className="ml-8 text-lg font-semibold text-gray-100 bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-600 focus:border-yellow-500 focus:outline-none transition-colors"
                 />
                 {/* v2 Scenario Selector */}
                 {scenarios.length > 0 && (
                   <select
                     value={activeScenarioId || ''}
                     onChange={(e) => e.target.value && loadScenario(e.target.value)}
-                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    className="px-4 py-2 bg-gray-800 text-gray-100 border border-gray-700 rounded-lg focus:ring-2 focus:ring-yellow-500 hover:bg-gray-700 transition-colors"
                   >
                     <option value="">Select Scenario</option>
                     {scenarios.map(scenario => (
@@ -2964,28 +3131,25 @@ export default function App() {
                     ))}
                   </select>
                 )}
-              </div>
-              <p className="text-gray-600">
-                Advanced Real Estate Development Pro Forma
                 {activeScenarioId && lastSaved && (
-                  <span className="text-sm text-gray-500 ml-4">
+                  <span className="text-xs text-gray-500">
                     Auto-saved {lastSaved.toLocaleTimeString()}
                   </span>
                 )}
-              </p>
+              </div>
             </div>
             <div className="flex gap-2">
               {/* v2 Scenario Management Buttons */}
               <button
                 onClick={() => setShowScenarioManager(true)}
-                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center gap-2"
+                className="px-4 py-2 bg-yellow-600 text-gray-900 rounded-lg hover:bg-yellow-500 font-medium flex items-center gap-2 transition-colors"
               >
                 <Briefcase size={20} />
                 Scenarios
               </button>
               <button
                 onClick={() => setShowScenarioComparison(true)}
-                className="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center gap-2"
+                className="px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
                 disabled={scenarios.length < 2}
               >
                 <BarChartIcon size={20} />
@@ -2994,36 +3158,41 @@ export default function App() {
               {/* v1 Save Button (kept for compatibility) */}
               <button
                 onClick={() => setShowSaveDialog(true)}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
+                className="px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
               >
                 <Save size={20} />
                 Save
               </button>
               <button
                 onClick={exportToCSV}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2"
+                className="px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
               >
                 <Download size={20} />
                 Export CSV
               </button>
               <button
                 onClick={exportToPDF}
-                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 flex items-center gap-2"
+                className="px-4 py-2 bg-yellow-600 text-gray-900 rounded-lg hover:bg-yellow-500 font-medium flex items-center gap-2 transition-colors"
               >
                 <FileText size={20} />
                 Export PDF
               </button>
               <button
                 onClick={() => setShowGoalSeek(true)}
-                className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center gap-2"
+                className="px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
               >
                 <Target size={20} />
                 Goal Seek
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Property Type Selection */}
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto p-4">
+        {/* Property Type Selection */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Property Type
@@ -3040,18 +3209,18 @@ export default function App() {
                     onClick={() => setPropertyType(key)}
                     className={`p-4 rounded-lg border-2 transition-all ${
                       propertyType === key
-                        ? "border-blue-500 bg-blue-50"
+                        ? "border-yellow-500 bg-yellow-50"
                         : "border-gray-300 hover:border-gray-400"
                     }`}
                   >
                     <Icon
                       className={`w-8 h-8 mx-auto mb-2 ${
-                        propertyType === key ? "text-blue-500" : "text-gray-500"
+                        propertyType === key ? "text-yellow-600" : "text-gray-500"
                       }`}
                     />
                     <p
                       className={`font-medium ${
-                        propertyType === key ? "text-blue-900" : "text-gray-700"
+                        propertyType === key ? "text-yellow-900" : "text-gray-700"
                       }`}
                     >
                       {type.name}
@@ -3072,7 +3241,7 @@ export default function App() {
                 onClick={() => setMode("simple")}
                 className={`px-4 py-2 rounded-lg ${
                   mode === "simple"
-                    ? "bg-blue-500 text-white"
+                    ? "bg-yellow-500 text-white"
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
@@ -3082,7 +3251,7 @@ export default function App() {
                 onClick={() => setMode("detailed")}
                 className={`px-4 py-2 rounded-lg ${
                   mode === "detailed"
-                    ? "bg-blue-500 text-white"
+                    ? "bg-yellow-500 text-white"
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
@@ -3163,7 +3332,7 @@ export default function App() {
                           onChange={(e) =>
                             handleFormattedInput(e.target.value, setLandCost)
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                     ) : (
@@ -3245,7 +3414,7 @@ export default function App() {
                                 isDonated: false
                               }]);
                             }}
-                            className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                            className="mt-2 text-yellow-600 hover:text-yellow-800 text-sm"
                           >
                             + Add Parcel
                           </button>
@@ -3263,7 +3432,7 @@ export default function App() {
                           setSiteAreaAcres(Number(e.target.value))
                         }
                         step="0.1"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                       />
                     </div>
                     <div>
@@ -3282,7 +3451,7 @@ export default function App() {
                               totalUnits: Number(e.target.value),
                             })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       ) : (
                         <input
@@ -3291,7 +3460,7 @@ export default function App() {
                           onChange={(e) =>
                             handleFormattedInput(e.target.value, setBuildingGFA)
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       )}
                     </div>
@@ -3313,7 +3482,7 @@ export default function App() {
                         }
                         disabled={!includeParking}
                         step="0.1"
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 ${
                           !includeParking ? "bg-gray-100" : ""
                         }`}
                       />
@@ -3340,7 +3509,7 @@ export default function App() {
                                 monthlyRate: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -3356,7 +3525,7 @@ export default function App() {
                                 reserved: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -3372,7 +3541,7 @@ export default function App() {
                                 occupancy: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                       </div>
@@ -3459,7 +3628,7 @@ export default function App() {
                                 totalUnits: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3475,7 +3644,7 @@ export default function App() {
                                 avgUnitSize: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3508,7 +3677,7 @@ export default function App() {
                               coreShell: Number(e.target.value),
                             })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                       <div>
@@ -3526,7 +3695,7 @@ export default function App() {
                               tenantImprovements: Number(e.target.value),
                             })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                       <div>
@@ -3540,7 +3709,7 @@ export default function App() {
                             const parsed = parseFormattedNumber(e.target.value);
                             setHardCosts({ ...hardCosts, siteWork: parsed });
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                       <div>
@@ -3556,7 +3725,7 @@ export default function App() {
                               contingency: Number(e.target.value),
                             })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                     </div>
@@ -3590,7 +3759,7 @@ export default function App() {
                                 })
                               }
                               disabled={!hardCosts.landscapingEnabled}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                             />
                           </div>
                         </div>
@@ -3634,7 +3803,7 @@ export default function App() {
                               })
                             }
                             disabled={!softCosts.architectureEngineeringEnabled}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3664,7 +3833,7 @@ export default function App() {
                               })
                             }
                             disabled={!softCosts.developerFeeEnabled}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3678,7 +3847,7 @@ export default function App() {
                               const parsed = parseFormattedNumber(e.target.value);
                               setSoftCosts({ ...softCosts, legalAccounting: parsed });
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3692,7 +3861,7 @@ export default function App() {
                               const parsed = parseFormattedNumber(e.target.value);
                               setSoftCosts({ ...softCosts, marketingLeasing: parsed });
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                       </div>
@@ -3724,7 +3893,7 @@ export default function App() {
                               })
                             }
                             disabled={!softCosts.permitsImpactFeesEnabled}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3754,7 +3923,7 @@ export default function App() {
                               })
                             }
                             disabled={!softCosts.constructionMgmtFeeEnabled}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                       </div>
@@ -3815,7 +3984,7 @@ export default function App() {
                             })
                           }
                           disabled={!constructionLoan.enabled}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                       <div>
@@ -3833,7 +4002,7 @@ export default function App() {
                             })
                           }
                           disabled={!constructionLoan.enabled}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                       <div>
@@ -3851,7 +4020,7 @@ export default function App() {
                             })
                           }
                           disabled={!constructionLoan.enabled}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           step="0.1"
                         />
                       </div>
@@ -3870,7 +4039,7 @@ export default function App() {
                             })
                           }
                           disabled={!constructionLoan.enabled}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                         />
                       </div>
                     </div>
@@ -3913,7 +4082,7 @@ export default function App() {
                               })
                             }
                             disabled={!permanentLoan.enabled}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                         <div>
@@ -3931,7 +4100,7 @@ export default function App() {
                               })
                             }
                             disabled={!permanentLoan.enabled}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                           />
                         </div>
                       </div>
@@ -3941,11 +4110,11 @@ export default function App() {
                   <div className="grid grid-cols-3 gap-4 pt-2">
                     {propertyType === "forSale" ? (
                       <>
-                        <div className="text-center p-3 bg-blue-50 rounded-lg">
+                        <div className="text-center p-3 bg-yellow-50 rounded-lg">
                           <p className="text-sm text-gray-600">
                             Total Sales Revenue
                           </p>
-                          <p className="text-lg font-semibold text-blue-600">
+                          <p className="text-lg font-semibold text-yellow-600">
                             {formatCurrency(
                               salesAssumptions.totalUnits *
                                 salesAssumptions.avgPricePerUnit
@@ -3983,12 +4152,12 @@ export default function App() {
                       </>
                     ) : (
                       <>
-                        <div className="text-center p-3 bg-blue-50 rounded-lg">
+                        <div className="text-center p-3 bg-yellow-50 rounded-lg">
                           <div className="text-sm text-gray-600 flex items-center justify-center">
                             Year 1 DSCR
                             <InfoTooltip content="Debt Service Coverage Ratio: NOI divided by annual debt service. Lenders typically require 1.20x minimum." />
                           </div>
-                          <p className="text-lg font-semibold text-blue-600">
+                          <p className="text-lg font-semibold text-yellow-600">
                             {calculateCashFlows?.year1NOI &&
                             calculateCashFlows?.permanentLoanAmount &&
                             permanentLoan.rate > 0
@@ -4065,7 +4234,7 @@ export default function App() {
                           </h3>
                           <button
                             onClick={addUnitType}
-                            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
                           >
                             + Add Unit Type
                           </button>
@@ -4229,7 +4398,7 @@ export default function App() {
                                 rentPSF: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -4245,7 +4414,7 @@ export default function App() {
                                 vacancy: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -4263,7 +4432,7 @@ export default function App() {
                                 opex: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -4280,7 +4449,7 @@ export default function App() {
                                 capRate: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                       </div>
@@ -4304,7 +4473,7 @@ export default function App() {
                                 avgUnitSize: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -4323,7 +4492,7 @@ export default function App() {
                                   newPricePerSF * salesAssumptions.avgUnitSize,
                               });
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -4339,7 +4508,7 @@ export default function App() {
                                 salesPace: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                         <div>
@@ -4355,7 +4524,7 @@ export default function App() {
                                 priceEscalation: Number(e.target.value),
                               })
                             }
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                           />
                         </div>
                       </div>
@@ -4368,7 +4537,7 @@ export default function App() {
                           </h3>
                           <button
                             onClick={addSalesPhase}
-                            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
                           >
                             + Add Phase
                           </button>
@@ -4891,9 +5060,9 @@ export default function App() {
                         </div>
 
                         {/* Cross-Subsidization Summary */}
-                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                          <h4 className="font-medium text-blue-900 mb-2">Cross-Subsidization Analysis</h4>
-                          <div className="text-sm text-blue-800 space-y-1">
+                        <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
+                          <h4 className="font-medium text-yellow-900 mb-2">Cross-Subsidization Analysis</h4>
+                          <div className="text-sm text-yellow-800 space-y-1">
                             <p>• Commercial components subsidize affordable housing through higher returns</p>
                             <p>• TIF revenues support public infrastructure and affordable housing</p>
                             <p>• Mixed-use density allows for efficient land use and shared parking</p>
@@ -4914,30 +5083,39 @@ export default function App() {
               <h2 className="text-xl font-semibold mb-4">Key Metrics</h2>
               <div className="space-y-3">
                 <div 
-                  className="flex justify-between items-center p-3 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
-                  onClick={() => setShowIRRBreakdown(true)}
+                  className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg cursor-pointer hover:bg-yellow-100 transition-colors"
+                  onClick={() => setActiveMetricBreakdown('Project IRR')}
                 >
                   <span className="text-gray-700 flex items-center">
                     Project IRR
-                    <InfoTooltip content="Click to see detailed IRR breakdown by year" />
+                    <InfoTooltip content="Click to see detailed IRR breakdown" />
                   </span>
-                  <span className="text-xl font-bold text-blue-600">
+                  <span className="text-xl font-bold text-yellow-600">
                     {combinedReturns.irr}%
                   </span>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                <div 
+                  className="flex justify-between items-center p-3 bg-green-50 rounded-lg cursor-pointer hover:bg-green-100 transition-colors"
+                  onClick={() => setActiveMetricBreakdown('Equity Multiple')}
+                >
                   <span className="text-gray-700">Equity Multiple</span>
                   <span className="text-xl font-bold text-green-600">
                     {combinedReturns.equityMultiple}x
                   </span>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
+                <div 
+                  className="flex justify-between items-center p-3 bg-purple-50 rounded-lg cursor-pointer hover:bg-purple-100 transition-colors"
+                  onClick={() => setActiveMetricBreakdown('Total Development Cost')}
+                >
                   <span className="text-gray-700">Total Development Cost</span>
                   <span className="text-lg font-bold text-purple-600">
                     {formatCurrency(calculateTotalCost.total)}
                   </span>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
+                <div 
+                  className="flex justify-between items-center p-3 bg-orange-50 rounded-lg cursor-pointer hover:bg-orange-100 transition-colors"
+                  onClick={() => setActiveMetricBreakdown('Equity Required')}
+                >
                   <span className="text-gray-700">Equity Required</span>
                   <span className="text-lg font-bold text-orange-600">
                     {formatCurrency(calculateFinancing.equityRequired)}
@@ -4976,13 +5154,19 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
+                    <div 
+                      className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg cursor-pointer hover:bg-yellow-100 transition-colors"
+                      onClick={() => setActiveMetricBreakdown('Avg Cash-on-Cash')}
+                    >
                       <span className="text-gray-700">Avg Cash-on-Cash</span>
                       <span className="text-xl font-bold text-yellow-600">
                         {combinedReturns.avgCashOnCash}%
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                    <div 
+                      className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg cursor-pointer hover:bg-indigo-100 transition-colors"
+                      onClick={() => setActiveMetricBreakdown('Yield on Cost')}
+                    >
                       <span className="text-gray-700">Yield on Cost</span>
                       <span className="text-xl font-bold text-indigo-600">
                         {calculateAdditionalMetrics.yieldOnCost}%
@@ -4992,6 +5176,44 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* AI Analysis */}
+            {aiEnabled && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold">AI Analysis</h2>
+                  <span className="text-xs text-gray-500">Powered by Claude</span>
+                </div>
+                <AIInsightsIntegration
+                  scenario={{
+                    name: projectName,
+                    data: {
+                      propertyType,
+                      metrics: {
+                        irr: parseFloat(combinedReturns.irr),
+                        equityMultiple: parseFloat(combinedReturns.equityMultiple),
+                        totalCost: calculateFinancing.totalProjectCost,
+                        equityRequired: calculateFinancing.equityRequired,
+                        avgCashOnCash: parseFloat(combinedReturns.avgCashOnCash),
+                        yieldOnCost: parseFloat(calculateAdditionalMetrics.yieldOnCost)
+                      },
+                      assumptions: {
+                        buildingGFA,
+                        operatingAssumptions,
+                        financingAssumptions: {
+                          constructionLoan,
+                          permanentLoan
+                        },
+                        equityStructure
+                      },
+                      cashFlows: calculateCashFlows?.cashFlows || []
+                    },
+                    results: combinedReturns
+                  }}
+                  className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-gray-900 font-medium"
+                />
+              </div>
+            )}
 
             {/* Sources & Uses */}
             <div className="bg-white rounded-lg shadow-sm p-6">
@@ -5044,6 +5266,20 @@ export default function App() {
                   </span>
                 </div>
               </div>
+              
+              {/* LP/GP Equity Split Slider */}
+              <EquitySlider
+                lpEquity={equityStructure.lpEquity}
+                gpEquity={equityStructure.gpEquity}
+                totalEquity={calculateFinancing.equityRequired}
+                onEquityChange={(newLpEquity, newGpEquity) => {
+                  setEquityStructure({
+                    ...equityStructure,
+                    lpEquity: newLpEquity,
+                    gpEquity: newGpEquity
+                  });
+                }}
+              />
             </div>
 
             {/* Additional Metrics */}
@@ -5156,9 +5392,9 @@ export default function App() {
                       {formatCurrency(calculateTIFAnalysis.incrementalValue)}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                  <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
                     <span className="text-gray-700 font-medium">Annual TIF Revenue</span>
-                    <span className="text-xl font-bold text-blue-600">
+                    <span className="text-xl font-bold text-yellow-600">
                       {formatCurrency(calculateTIFAnalysis.annualRevenue)}
                     </span>
                   </div>
@@ -5195,9 +5431,9 @@ export default function App() {
                       {formatCurrency(calculateCrossSubsidy.affordableNOI)}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                  <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
                     <span className="text-gray-700 font-medium">Net Project NOI</span>
-                    <span className="text-xl font-bold text-blue-600">
+                    <span className="text-xl font-bold text-yellow-600">
                       {formatCurrency(calculateCrossSubsidy.netSubsidy)}
                     </span>
                   </div>
@@ -5238,6 +5474,48 @@ export default function App() {
           </div>
         </div>
 
+        {/* Waterfall Distribution */}
+        <div className="mt-6 bg-white rounded-lg shadow-sm">
+          <div
+            className="p-6 cursor-pointer hover:bg-gray-50"
+            onClick={() => toggleSection('waterfall')}
+          >
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Users className="w-6 h-6 text-purple-600" />
+                Waterfall Distribution
+              </h2>
+              {expandedSections.waterfall ? (
+                <ChevronDown className="w-5 h-5 text-gray-500" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              )}
+            </div>
+            <p className="text-sm text-gray-600 mt-1">
+              Partnership waterfall structure with sponsor promote fees
+            </p>
+          </div>
+          
+          {expandedSections.waterfall && (
+            <div className="p-6 pt-0">
+              <WaterfallDistribution
+                totalDistributions={calculateCashFlows?.cashFlows?.reduce((sum, cf) => 
+                  sum + (cf.cashFlow || 0), 0) || 0}
+                initialEquity={Math.abs(calculateCashFlows?.cashFlows?.[0]?.cashFlow || 0)}
+                preferredReturn={equityStructure.preferredReturn}
+                sponsorPromote={equityStructure.sponsorPromote}
+                setSponsorPromote={(value) => setEquityStructure({
+                  ...equityStructure,
+                  sponsorPromote: value
+                })}
+                waterfallTiers={waterfallTiers}
+                setWaterfallTiers={setWaterfallTiers}
+                equityStructure={equityStructure}
+              />
+            </div>
+          )}
+        </div>
+
         {/* Sensitivity Analysis */}
         <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
           <div className="flex justify-between items-center mb-4">
@@ -5247,7 +5525,7 @@ export default function App() {
                 onClick={() => setSensitivityVariable("rent")}
                 className={`px-3 py-1 rounded-lg text-sm ${
                   sensitivityVariable === "rent"
-                    ? "bg-blue-500 text-white"
+                    ? "bg-yellow-500 text-white"
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
@@ -5257,7 +5535,7 @@ export default function App() {
                 onClick={() => setSensitivityVariable("construction")}
                 className={`px-3 py-1 rounded-lg text-sm ${
                   sensitivityVariable === "construction"
-                    ? "bg-blue-500 text-white"
+                    ? "bg-yellow-500 text-white"
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
@@ -5267,7 +5545,7 @@ export default function App() {
                 onClick={() => setSensitivityVariable("capRate")}
                 className={`px-3 py-1 rounded-lg text-sm ${
                   sensitivityVariable === "capRate"
-                    ? "bg-blue-500 text-white"
+                    ? "bg-yellow-500 text-white"
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
@@ -5277,7 +5555,7 @@ export default function App() {
                 onClick={() => setSensitivityVariable("interestRate")}
                 className={`px-3 py-1 rounded-lg text-sm ${
                   sensitivityVariable === "interestRate"
-                    ? "bg-blue-500 text-white"
+                    ? "bg-yellow-500 text-white"
                     : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                 }`}
               >
@@ -5316,7 +5594,7 @@ export default function App() {
                       key={index}
                       className={`text-center text-sm font-semibold py-2 px-2 rounded ${
                         item.change === 0
-                          ? "bg-gray-100 ring-2 ring-blue-500"
+                          ? "bg-gray-100 ring-2 ring-yellow-500"
                           : getSensitivityColor(item.delta)
                       }`}
                     >
@@ -5454,10 +5732,10 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                  <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
                     <p className="text-sm text-gray-700">
                       Probability-Weighted IRR:{" "}
-                      <span className="font-bold text-blue-600">
+                      <span className="font-bold text-yellow-600">
                         {probabilityWeightedIRR}%
                       </span>
                     </p>
@@ -5576,11 +5854,11 @@ export default function App() {
                   </div>
                   
                   {/* Additional Monte Carlo Metrics */}
-                  <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+                  <div className="mb-4 p-4 bg-yellow-50 rounded-lg">
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <p className="text-sm text-gray-700">Probability of IRR &gt; 15%</p>
-                        <p className="text-lg font-bold text-blue-600">
+                        <p className="text-lg font-bold text-yellow-600">
                           {runMonteCarloSimulation.distribution ? 
                             ((runMonteCarloSimulation.distribution.filter(irr => irr > 15).length / 
                               runMonteCarloSimulation.distribution.length) * 100).toFixed(1) : 0}%
@@ -5652,7 +5930,7 @@ export default function App() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => loadScenarioV1(scenario)}
-                      className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                      className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
                     >
                       Load
                     </button>
@@ -5679,11 +5957,11 @@ export default function App() {
                 value={scenarioName}
                 onChange={(e) => setScenarioName(e.target.value)}
                 placeholder="Enter scenario name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-yellow-500"
               />
               <textarea
                 placeholder="Description (optional)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-yellow-500"
                 rows={3}
               />
               <div className="flex justify-end gap-2">
@@ -5706,7 +5984,7 @@ export default function App() {
                       saveScenario();
                     }
                   }}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                  className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"
                 >
                   Save
                 </button>
@@ -5722,9 +6000,9 @@ export default function App() {
               <h3 className="text-xl font-semibold mb-4">IRR Breakdown Analysis</h3>
               
               <div className="mb-6">
-                <div className="bg-blue-50 p-4 rounded-lg mb-4">
-                  <div className="text-lg font-semibold text-blue-900">Project IRR: {combinedReturns.irr}%</div>
-                  <div className="text-sm text-blue-700">Equity Multiple: {combinedReturns.equityMultiple}x</div>
+                <div className="bg-yellow-50 p-4 rounded-lg mb-4">
+                  <div className="text-lg font-semibold text-yellow-900">Project IRR: {combinedReturns.irr}%</div>
+                  <div className="text-sm text-yellow-700">Equity Multiple: {combinedReturns.equityMultiple}x</div>
                 </div>
                 
                 <h4 className="font-medium text-gray-900 mb-3">Cash Flow Contributions by Year</h4>
@@ -5847,7 +6125,7 @@ export default function App() {
                         <h4 className="font-semibold text-lg flex items-center gap-2">
                           {scenario.name}
                           {scenario.id === activeScenarioId && (
-                            <span className="text-sm bg-blue-100 text-blue-700 px-2 py-1 rounded">Active</span>
+                            <span className="text-sm bg-yellow-100 text-yellow-700 px-2 py-1 rounded">Active</span>
                           )}
                         </h4>
                         {scenario.description && (
@@ -5876,7 +6154,7 @@ export default function App() {
                         {scenario.id !== activeScenarioId && (
                           <button
                             onClick={() => loadScenario(scenario.id)}
-                            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
                           >
                             Load
                           </button>
@@ -6169,6 +6447,56 @@ export default function App() {
           Real Estate Development Pro Forma v2.0.0 - Enhanced with Scenario Management
         </div>
       </div>
+
+      {/* Metric Breakdown Modal */}
+      {activeMetricBreakdown && (
+        <MetricBreakdown
+          metric={activeMetricBreakdown}
+          value={
+            activeMetricBreakdown === 'Project IRR' ? `${combinedReturns.irr}%` :
+            activeMetricBreakdown === 'Equity Multiple' ? `${combinedReturns.equityMultiple}x` :
+            activeMetricBreakdown === 'Total Development Cost' ? formatCurrency(calculateFinancing.totalProjectCost) :
+            activeMetricBreakdown === 'Equity Required' ? formatCurrency(calculateFinancing.equityRequired) :
+            activeMetricBreakdown === 'Avg Cash-on-Cash' ? `${combinedReturns.avgCashOnCash}%` :
+            activeMetricBreakdown === 'Yield on Cost' ? `${calculateAdditionalMetrics.yieldOnCost}%` :
+            '0'
+          }
+          data={getMetricBreakdownData(activeMetricBreakdown)}
+          onClose={() => setActiveMetricBreakdown(null)}
+        />
+      )}
+      
+      {/* API Key Modal */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => {
+          setShowApiKeyModal(false);
+          ApiKeyManager.setPrompted(true);
+        }}
+        onSubmit={(apiKey) => {
+          setShowApiKeyModal(false);
+          setAiEnabled(true);
+          ApiKeyManager.setPrompted(true);
+        }}
+        onDecline={() => {
+          setAiEnabled(false);
+        }}
+        showDeclineOption={true}
+      />
+      
+      {/* Footer */}
+      <footer className="bg-gray-900 border-t border-gray-800 mt-12">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-gray-400 text-sm">
+              <span>© 2024 Onyx Development</span>
+              <span className="text-gray-600">|</span>
+              <span>v2.0</span>
+            </div>
+            <OnyxLogo height={24} className="opacity-50 hover:opacity-75 transition-opacity" />
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

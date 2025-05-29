@@ -1,5 +1,6 @@
 import React from 'react';
 import { Brain } from 'lucide-react';
+import { ApiKeyManager } from './services/ApiKeyManager';
 
 const DebugAIButton: React.FC = () => {
   React.useEffect(() => {
@@ -23,7 +24,7 @@ const DebugAIButton: React.FC = () => {
       
       // Check current location
       console.log('- Current URL:', window.location.href);
-      console.log('- Local storage claude_api_key:', !!localStorage.getItem('claude_api_key'));
+      console.log('- API key in ApiKeyManager:', !!ApiKeyManager.getApiKey());
     }, 2000);
     
     return () => clearInterval(interval);
@@ -39,9 +40,9 @@ const DebugAIButton: React.FC = () => {
       </div>
       <button 
         onClick={() => {
-          localStorage.setItem('claude_api_key', 'test-key');
-          console.log('Test API key set - no refresh needed!');
-          alert('Test API key has been set! The app will detect it automatically in a few seconds.');
+          ApiKeyManager.setApiKey('test-key');
+          console.log('Test API key set via ApiKeyManager!');
+          alert('Test API key has been set!');
         }}
         className="mt-2 px-3 py-1 bg-purple-600 text-white rounded text-sm"
       >
@@ -51,9 +52,9 @@ const DebugAIButton: React.FC = () => {
         onClick={() => {
           const key = prompt('Enter your Claude API key (sk-ant-api...)');
           if (key) {
-            localStorage.setItem('claude_api_key', key);
-            console.log('API key set successfully - no refresh needed!');
-            alert('API key saved! The app will detect it automatically in a few seconds.');
+            ApiKeyManager.setApiKey(key);
+            console.log('API key set successfully via ApiKeyManager!');
+            alert('API key saved!');
           }
         }}
         className="mt-2 ml-2 px-3 py-1 bg-green-600 text-white rounded text-sm"

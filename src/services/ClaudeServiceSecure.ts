@@ -1,4 +1,5 @@
 import { DealInsights, AnalysisRequest } from './ClaudeService';
+import { ApiKeyManager } from './ApiKeyManager';
 
 export class ClaudeInsightsServiceSecure {
   private apiEndpoint: string;
@@ -9,6 +10,11 @@ export class ClaudeInsightsServiceSecure {
   }
   
   async analyzeDeal(request: AnalysisRequest): Promise<DealInsights> {
+    const apiKey = ApiKeyManager.getApiKey();
+    if (!apiKey) {
+      throw new Error('API key required. Please configure your Claude API key.');
+    }
+    
     const prompt = this.buildAnalysisPrompt(request);
     
     try {
@@ -16,6 +22,7 @@ export class ClaudeInsightsServiceSecure {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Api-Key': apiKey
         },
         body: JSON.stringify({
           action: 'analyzeDeal',
@@ -41,6 +48,11 @@ export class ClaudeInsightsServiceSecure {
     inputs: Record<string, any>, 
     result: any
   ): Promise<string> {
+    const apiKey = ApiKeyManager.getApiKey();
+    if (!apiKey) {
+      return 'API key required to generate explanation. Please configure your Claude API key.';
+    }
+    
     const explainPrompt = `
     Explain this real estate calculation in simple terms:
     
@@ -57,6 +69,7 @@ export class ClaudeInsightsServiceSecure {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Api-Key': apiKey
         },
         body: JSON.stringify({
           action: 'explainCalculation',

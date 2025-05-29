@@ -9,13 +9,20 @@ exports.handler = async (event, context) => {
     };
   }
 
-  // Get API key from environment variable
-  const apiKey = process.env.CLAUDE_API_KEY;
+  // Get API key from request headers
+  const apiKey = event.headers['x-api-key'] || event.headers['X-Api-Key'];
   
   if (!apiKey) {
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'API key not configured' })
+      statusCode: 401,
+      body: JSON.stringify({ error: 'API key required. Please provide your Claude API key.' })
+    };
+  }
+  
+  if (!apiKey.startsWith('sk-ant-')) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ error: 'Invalid API key format' })
     };
   }
 

@@ -1,17 +1,22 @@
 # Deployment Guide for Real Estate Pro Forma App
 
-## Secure Deployment to Netlify
+## Overview
+
+This app now uses a user-provided API key system for Claude AI features. Users will be prompted to enter their own Claude API key when they first use AI features. The key is stored securely in their browser's local storage.
+
+## Deployment to Netlify
 
 ### Prerequisites
 1. A Netlify account (free at netlify.com)
-2. Your Claude API key from console.anthropic.com
-3. Git repository (GitHub, GitLab, or Bitbucket)
+2. Git repository (GitHub, GitLab, or Bitbucket)
+3. Users will need their own Claude API key from console.anthropic.com
 
 ### Step 1: Prepare Your Code
 
-1. **Remove any hardcoded API keys** from your code
-   - The app now uses serverless functions to protect your API key
-   - API key is only stored in Netlify environment variables
+1. **No API keys needed in environment**
+   - Users provide their own API keys
+   - Keys are stored in browser local storage
+   - Serverless function validates user-provided keys
 
 2. **Commit your code** (API key is already protected)
    ```bash
@@ -41,37 +46,34 @@ netlify login
 netlify deploy --prod
 ```
 
-### Step 3: Set Environment Variables
+### Step 3: No Environment Variables Needed
 
-1. In Netlify Dashboard, go to your site
-2. Navigate to **Site Settings** > **Environment Variables**
-3. Add the following variable:
-   - Key: `CLAUDE_API_KEY`
-   - Value: Your Claude API key (sk-ant-api...)
-   - Scopes: Select all (Production, Preview, etc.)
+The app no longer requires environment variables for API keys. Users will provide their own keys through the UI.
 
 ### Step 4: Test Your Deployment
 
 1. Visit your Netlify URL (e.g., https://your-site.netlify.app)
-2. The AI features will now work without exposing your API key
-3. The API key is securely stored on Netlify's servers
+2. Click on any AI feature (AI Insights or Error Detection)
+3. You'll be prompted to enter your Claude API key
+4. The key is stored in your browser and sent securely with each request
 
 ## Local Development
 
-For local development with the serverless function:
+For local development:
 
-1. Install Netlify CLI:
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Run the development server:
+   ```bash
+   npm start
+   ```
+
+3. For testing serverless functions locally:
    ```bash
    npm install -g netlify-cli
-   ```
-
-2. Create `.env` file (already in .gitignore):
-   ```
-   CLAUDE_API_KEY=your_api_key_here
-   ```
-
-3. Run with Netlify Dev:
-   ```bash
    netlify dev
    ```
 
@@ -79,30 +81,32 @@ This will start both your React app and the serverless functions locally.
 
 ## Security Features
 
-✅ **API Key Protection**: Your Claude API key is never exposed to the client
-✅ **Serverless Functions**: All API calls go through secure server-side functions
-✅ **Environment Variables**: Sensitive data stored in Netlify's secure environment
-✅ **Automatic Detection**: App automatically uses secure mode when deployed
-✅ **Local Development**: Can still use direct API for faster development locally
+✅ **User-Owned Keys**: Each user provides and manages their own API key
+✅ **Local Storage**: Keys are stored in the user's browser
+✅ **Serverless Validation**: Backend validates key format before API calls
+✅ **No Shared Keys**: No risk of exposing a shared API key
+✅ **Per-User Billing**: Each user's API usage is billed to their own account
 
 ## How It Works
 
-1. **In Production**: 
-   - Frontend calls `/api/claude-api`
-   - Netlify function receives the request
-   - Function uses the API key from environment variables
-   - Function calls Claude API and returns results
-   - API key never reaches the browser
+1. **First Use**: 
+   - User clicks on AI feature
+   - Modal prompts for Claude API key
+   - Key is validated and stored in localStorage
+   - Future sessions remember the key
 
-2. **In Development**:
-   - Can use either local API key or Netlify Dev
-   - Automatic detection based on hostname
+2. **API Calls**:
+   - Frontend sends requests to `/api/claude-api`
+   - User's API key included in request headers
+   - Serverless function validates and forwards to Claude
+   - Results returned to user
 
 ## Troubleshooting
 
-1. **"API key not configured" error**
-   - Make sure you've set CLAUDE_API_KEY in Netlify environment variables
-   - Redeploy after setting environment variables
+1. **"API key required" error**
+   - User needs to enter their Claude API key
+   - Keys must start with "sk-ant-"
+   - Get keys from console.anthropic.com
 
 2. **Function not found**
    - Check that `netlify/functions/claude-api.js` exists
@@ -115,5 +119,13 @@ This will start both your React app and the serverless functions locally.
 ## Cost Considerations
 
 - **Netlify Free Tier**: 125k function requests/month
-- **Claude API**: Pay per token as usual
-- Monitor usage in both Netlify and Anthropic dashboards
+- **Claude API**: Each user pays for their own usage
+- Users can monitor usage in their Anthropic dashboard
+
+## User Instructions
+
+### For End Users:
+1. Get your Claude API key from [console.anthropic.com](https://console.anthropic.com)
+2. When prompted in the app, enter your API key
+3. Your key is stored locally and never shared
+4. You're responsible for your own API usage and costs

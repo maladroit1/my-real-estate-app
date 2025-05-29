@@ -1,12 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import RealEstateProFormaV2 from "./RealEstateProFormaV2";
 
 const root = ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement
 );
 root.render(
   <React.StrictMode>
-    <App />
+    <RealEstateProFormaV2 />
   </React.StrictMode>
 );

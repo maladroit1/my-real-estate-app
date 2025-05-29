@@ -10,6 +10,8 @@ import {
   ValidationWarning,
   Suggestion
 } from '../types/errorDetection';
+import { ApiKeyManager } from '../services/ApiKeyManager';
+import { ApiKeyModal } from './ApiKeyModal';
 
 interface ErrorOverviewProps {
   scenario: any;
@@ -133,22 +135,40 @@ export const ErrorOverview: React.FC<ErrorOverviewProps> = ({
   const [expanded, setExpanded] = useState(true);
   const [lastValidation, setLastValidation] = useState<Date | null>(null);
   const [autoValidate, setAutoValidate] = useState(true);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   const validateScenario = useCallback(async () => {
     if (!scenario) return;
     
+    // Check for API key
+    const currentApiKey = apiKey || ApiKeyManager.getApiKey();
+    if (!currentApiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    
     setLoading(true);
     try {
-      const detector = new AIErrorDetector(apiKey || '');
+      const detector = new AIErrorDetector(currentApiKey);
       const result = await detector.validateScenario(scenario);
       setErrors(result);
       setLastValidation(new Date());
     } catch (error) {
       console.error('Validation error:', error);
+      // If error is about API key, show modal
+      if (error instanceof Error && error.message.includes('API key')) {
+        setShowApiKeyModal(true);
+      }
     } finally {
       setLoading(false);
     }
   }, [scenario, apiKey]);
+  
+  const handleApiKeySubmit = (newApiKey: string) => {
+    setShowApiKeyModal(false);
+    // Retry validation with new API key
+    validateScenario();
+  };
 
   // Auto-validate on scenario changes
   useEffect(() => {
@@ -198,7 +218,14 @@ export const ErrorOverview: React.FC<ErrorOverviewProps> = ({
   };
 
   return (
-    <div className={`bg-white rounded-lg shadow-sm border ${className}`}>
+    <>
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onSubmit={handleApiKeySubmit}
+      />
+      
+      <div className={`bg-white rounded-lg shadow-sm border ${className}`}>
       {/* Header */}
       <div 
         className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50"
@@ -321,6 +348,7 @@ export const ErrorOverview: React.FC<ErrorOverviewProps> = ({
         </div>
       )}
     </div>
+    </>
   );
 };
 
