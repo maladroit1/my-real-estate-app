@@ -5299,7 +5299,7 @@ export default function App() {
                     acquisition: {
                       purchasePrice: landCost,
                       closingCosts: (landCost * 0.02), // Assuming 2% closing costs
-                      renovationCosts: hardCosts + softCosts
+                      renovationCosts: calculateTotalCost.hardCost + calculateTotalCost.softCost
                     },
                     financing: {
                       loanAmount: permanentLoan.loanAmount,
