@@ -1,20 +1,3 @@
-let Anthropic;
-try {
-  Anthropic = require('@anthropic-ai/sdk');
-} catch (error) {
-  console.error('Failed to load Anthropic SDK:', error);
-  exports.handler = async (event, context) => {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ 
-        error: 'Server configuration error',
-        details: 'Anthropic SDK not found. Please ensure @anthropic-ai/sdk is installed.'
-      })
-    };
-  };
-  return;
-}
-
 exports.handler = async (event, context) => {
   // Only allow POST requests
   if (event.httpMethod !== 'POST') {
@@ -45,39 +28,21 @@ exports.handler = async (event, context) => {
     const { action, data } = JSON.parse(event.body);
     
     console.log('Received action:', action);
-    console.log('API key length:', apiKey.length);
     
-    const anthropic = new Anthropic({
-      apiKey: apiKey
-    });
-
-    let response;
-
+    let messages;
+    let maxTokens;
+    
     switch (action) {
       case 'analyzeDeal':
         const { prompt } = data;
-        response = await anthropic.messages.create({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 2000,
-          temperature: 0.3,
-          messages: [{
-            role: 'user',
-            content: prompt
-          }]
-        });
+        messages = [{ role: 'user', content: prompt }];
+        maxTokens = 2000;
         break;
         
       case 'explainCalculation':
         const { explainPrompt } = data;
-        response = await anthropic.messages.create({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 500,
-          temperature: 0.3,
-          messages: [{
-            role: 'user',
-            content: explainPrompt
-          }]
-        });
+        messages = [{ role: 'user', content: explainPrompt }];
+        maxTokens = 500;
         break;
         
       default:
@@ -87,40 +52,69 @@ exports.handler = async (event, context) => {
         };
     }
 
+    // Make direct HTTP request to Anthropic API
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: maxTokens,
+        temperature: 0.3,
+        messages: messages
+      })
+    });
+
+    const responseData = await response.json();
+    
+    if (!response.ok) {
+      console.error('Anthropic API error:', responseData);
+      
+      if (response.status === 401) {
+        return {
+          statusCode: 401,
+          body: JSON.stringify({ 
+            error: 'Authentication failed. Please check your API key.',
+            details: responseData.error?.message || 'Invalid API key'
+          })
+        };
+      }
+      
+      if (response.status === 429) {
+        return {
+          statusCode: 429,
+          body: JSON.stringify({ 
+            error: 'Rate limit exceeded. Please try again later.',
+            details: responseData.error?.message || 'Too many requests'
+          })
+        };
+      }
+      
+      return {
+        statusCode: response.status,
+        body: JSON.stringify({ 
+          error: 'API request failed',
+          details: responseData.error?.message || 'Unknown error'
+        })
+      };
+    }
+
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        content: response.content[0].text
+        content: responseData.content[0].text
       })
     };
 
   } catch (error) {
-    console.error('Claude API error:', error);
+    console.error('Function error:', error);
     console.error('Error stack:', error.stack);
-    
-    // Check for specific error types
-    if (error.status === 401) {
-      return {
-        statusCode: 401,
-        body: JSON.stringify({ 
-          error: 'Authentication failed. Please check your API key.',
-          details: error.message 
-        })
-      };
-    }
-    
-    if (error.status === 429) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({ 
-          error: 'Rate limit exceeded. Please try again later.',
-          details: error.message 
-        })
-      };
-    }
     
     return {
       statusCode: 500,
