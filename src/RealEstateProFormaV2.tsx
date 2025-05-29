@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -548,8 +548,15 @@ export default function App() {
   const [comparisonScenarios, setComparisonScenarios] = useState<string[]>([]);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [editingScenarioName, setEditingScenarioName] = useState<string>("");
+  
+  // Use ref to avoid stale closures in interval
+  const scenariosRef = useRef(scenarios);
+  useEffect(() => {
+    scenariosRef.current = scenarios;
+  }, [scenarios]);
   
   // IRR Breakdown Modal
   const [showIRRBreakdown, setShowIRRBreakdown] = useState(false);
@@ -2927,13 +2934,13 @@ export default function App() {
   };
 
   const saveCurrentScenario = async (name: string, description?: string) => {
-    // Always create a new scenario with a new ID
-    const newScenarioId = Date.now().toString();
+    setIsSaving(true);
+    
     const scenario: Scenario = {
-      id: newScenarioId,
+      id: activeScenarioId || Date.now().toString(),
       name,
       description,
-      createdAt: new Date(),
+      createdAt: activeScenarioId ? scenarios.find(s => s.id === activeScenarioId)?.createdAt || new Date() : new Date(),
       updatedAt: new Date(),
       isActive: true,
       data: getCurrentScenarioData(),
@@ -2943,13 +2950,24 @@ export default function App() {
     // Deactivate other scenarios
     const updatedScenarios = scenarios.map(s => ({ ...s, isActive: false }));
     
-    // Add new scenario
-    updatedScenarios.push(scenario);
-    setActiveScenarioId(scenario.id);
+    if (activeScenarioId) {
+      // Update existing scenario
+      const index = updatedScenarios.findIndex(s => s.id === activeScenarioId);
+      if (index >= 0) {
+        updatedScenarios[index] = scenario;
+      }
+    } else {
+      // Add new scenario
+      updatedScenarios.push(scenario);
+      setActiveScenarioId(scenario.id);
+    }
 
     setScenarios(updatedScenarios);
     await saveScenarioToDB(scenario);
     setLastSaved(new Date());
+    
+    // Reset the saving flag after a short delay to ensure state updates complete
+    setTimeout(() => setIsSaving(false), 100);
   };
 
   const loadScenario = (scenarioId: string) => {
@@ -3170,27 +3188,34 @@ export default function App() {
 
   // Load active scenario after component mounts
   useEffect(() => {
+    // Skip loading if we're in the middle of saving
+    if (isSaving) return;
+    
     if (activeScenarioId && scenarios.length > 0) {
       const activeScenario = scenarios.find(s => s.id === activeScenarioId);
       if (activeScenario) {
         loadScenario(activeScenarioId);
       }
     }
-  }, [activeScenarioId, scenarios.length]);
+  }, [activeScenarioId, isSaving]); // Only reload when active scenario changes or saving state changes
 
   // Auto-save functionality
   useEffect(() => {
     if (!autoSaveEnabled || !activeScenarioId) return;
 
     const interval = setInterval(() => {
-      const activeScenario = scenarios.find(s => s.id === activeScenarioId);
-      if (activeScenario) {
-        saveCurrentScenario(activeScenario.name, activeScenario.description);
+      // Skip if already saving
+      if (isSaving) return;
+      
+      // Get the current scenario data using ref to avoid stale closure
+      const currentScenario = scenariosRef.current.find(s => s.id === activeScenarioId);
+      if (currentScenario) {
+        saveCurrentScenario(currentScenario.name, currentScenario.description);
       }
     }, 30000); // Auto-save every 30 seconds
 
     return () => clearInterval(interval);
-  }, [autoSaveEnabled, activeScenarioId, scenarios]);
+  }, [autoSaveEnabled, activeScenarioId]); // Remove scenarios from dependencies to prevent re-renders
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -3223,9 +3248,15 @@ export default function App() {
                   <h1 className="text-xl font-bold text-gray-100">Onyx Pro Forma Calculator</h1>
                   <p className="text-sm text-gray-400">Institutional-Grade Investment Analysis</p>
                 </div>
-                {activeScenarioId && lastSaved && (
+                {activeScenarioId && (
                   <span className="ml-4 text-sm text-gray-400">
-                    Auto-saved {lastSaved.toLocaleTimeString()}
+                    {isSaving ? (
+                      <span className="flex items-center gap-1">
+                        <span className="animate-pulse">Saving...</span>
+                      </span>
+                    ) : lastSaved ? (
+                      `Auto-saved ${lastSaved.toLocaleTimeString()}`
+                    ) : null}
                   </span>
                 )}
               </div>
