@@ -5302,8 +5302,8 @@ export default function App() {
                       renovationCosts: calculateTotalCost.hardCost + calculateTotalCost.softCost
                     },
                     financing: {
-                      loanAmount: permanentLoan.loanAmount,
-                      interestRate: permanentLoan.interestRate,
+                      loanAmount: calculateCashFlows?.permanentLoanAmount || 0,
+                      interestRate: permanentLoan.rate,
                       term: permanentLoan.amortization
                     },
                     income: {
