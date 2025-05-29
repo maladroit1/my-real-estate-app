@@ -107,10 +107,11 @@ export const AIInsights: React.FC<AIInsightsProps> = ({ scenario, apiKey, onClos
       setInsights(result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to get AI insights';
+      console.error('AI Insights error:', errorMessage);
       setError(errorMessage);
       
       // If error is about API key, show modal
-      if (errorMessage.includes('API key')) {
+      if (errorMessage.toLowerCase().includes('api key') || errorMessage.includes('401')) {
         setShowApiKeyModal(true);
       }
     } finally {

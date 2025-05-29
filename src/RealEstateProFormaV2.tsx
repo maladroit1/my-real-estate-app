@@ -34,6 +34,7 @@ import {
   BarChart as BarChartIcon,
   Target,
   Users,
+  Settings,
 } from "lucide-react";
 import { calculateIRR, formatIRR } from "./utils/irrCalculator";
 import FormulaViewer from "./components/FormulaViewerSimple";
@@ -3185,6 +3186,13 @@ export default function App() {
                 <Target size={20} />
                 Goal Seek
               </button>
+              <button
+                onClick={() => setShowApiKeyModal(true)}
+                className="px-3 py-2 bg-gray-800 text-gray-100 rounded-lg hover:bg-gray-700 border border-gray-700 flex items-center gap-2 transition-colors"
+                title="API Settings"
+              >
+                <Settings size={20} />
+              </button>
             </div>
           </div>
         </div>
@@ -5179,12 +5187,20 @@ export default function App() {
             </div>
 
             {/* AI Analysis */}
-            {aiEnabled && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold">AI Analysis</h2>
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">AI Analysis</h2>
+                <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500">Powered by Claude</span>
+                  {!ApiKeyManager.hasApiKey() && (
+                    <span className="text-xs text-yellow-600 flex items-center gap-1">
+                      <Settings size={12} />
+                      API Key Required
+                    </span>
+                  )}
                 </div>
+              </div>
+              {aiEnabled ? (
                 <AIInsightsIntegration
                   scenario={{
                     name: projectName,
@@ -5213,8 +5229,18 @@ export default function App() {
                   }}
                   className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-gray-900 font-medium"
                 />
-              </div>
-            )}
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 mb-4">AI features are disabled</p>
+                  <button
+                    onClick={() => setShowApiKeyModal(true)}
+                    className="px-4 py-2 bg-yellow-600 text-gray-900 rounded-lg hover:bg-yellow-500 font-medium transition-colors"
+                  >
+                    Enable AI Features
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Sources & Uses */}
             <div className="bg-white rounded-lg shadow-sm p-6">

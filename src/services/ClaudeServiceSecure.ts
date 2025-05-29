@@ -39,6 +39,9 @@ export class ClaudeInsightsServiceSecure {
       return this.parseInsights(result.content);
     } catch (error) {
       console.error('Claude API error:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
       throw new Error('Failed to get AI insights');
     }
   }
