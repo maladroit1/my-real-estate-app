@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -473,6 +473,13 @@ export default function App() {
   const [comparisonScenarios, setComparisonScenarios] = useState<string[]>([]);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Use ref to avoid stale closures in interval
+  const scenariosRef = useRef(scenarios);
+  useEffect(() => {
+    scenariosRef.current = scenarios;
+  }, [scenarios]);
   
   // IRR Breakdown Modal
   const [showIRRBreakdown, setShowIRRBreakdown] = useState(false);
@@ -511,6 +518,24 @@ export default function App() {
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // Add drill-down state management
+  const [drillDownState, setDrillDownState] = useState({
+    totalDevelopmentCost: false,
+    hardCosts: false,
+    softCosts: false,
+    landCosts: false,
+    financingCosts: false,
+    equityStructure: false,
+    returnsBreakdown: false,
+    sourcesUses: false,
+    yearlyReturns: false
+  });
+
+  // Helper to toggle drill-down sections
+  const toggleDrillDown = (section: keyof typeof drillDownState) => {
+    setDrillDownState(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   // Format currency
@@ -630,7 +655,9 @@ export default function App() {
 
       return {
         hardCost: hardCostWithContingency,
+        hardCostWithContingency: hardCostWithContingency,
         softCost: softCostTotal,
+        softCostTotal: softCostTotal,
         developerFee: developerFee,
         total: totalBeforeDeveloperFee + developerFee,
         parkingSpaces: parkingSpaces,
@@ -641,7 +668,9 @@ export default function App() {
       console.error("Error calculating total cost:", e);
       return {
         hardCost: 0,
+        hardCostWithContingency: 0,
         softCost: 0,
+        softCostTotal: 0,
         developerFee: 0,
         total: 0,
         parkingSpaces: 0,
@@ -740,6 +769,7 @@ export default function App() {
         acquisitionFeeAmount: 0,
         developmentFeeAmount: 0,
         constructionMgmtFeeAmount: 0,
+        mezzanineLoanAmount: 0,
       };
     } catch (e) {
       console.error("Error calculating financing:", e);
@@ -759,6 +789,7 @@ export default function App() {
         acquisitionFeeAmount: 0,
         developmentFeeAmount: 0,
         constructionMgmtFeeAmount: 0,
+        mezzanineLoanAmount: 0,
       };
     }
   }, [calculateTotalCost, constructionLoan, equityStructure, timeline, compensationType, sponsorFees]);
@@ -2768,6 +2799,8 @@ ${
   };
 
   const saveCurrentScenario = async (name: string, description?: string) => {
+    setIsSaving(true);
+    
     const scenario: Scenario = {
       id: activeScenarioId || Date.now().toString(),
       name,
@@ -2797,6 +2830,9 @@ ${
     setScenarios(updatedScenarios);
     await saveScenarioToDB(scenario);
     setLastSaved(new Date());
+    
+    // Reset the saving flag after a short delay to ensure state updates complete
+    setTimeout(() => setIsSaving(false), 100);
   };
 
   const loadScenario = (scenarioId: string) => {
@@ -2887,27 +2923,34 @@ ${
 
   // Load active scenario after component mounts
   useEffect(() => {
+    // Skip loading if we're in the middle of saving
+    if (isSaving) return;
+    
     if (activeScenarioId && scenarios.length > 0) {
       const activeScenario = scenarios.find(s => s.id === activeScenarioId);
       if (activeScenario) {
         loadScenario(activeScenarioId);
       }
     }
-  }, [activeScenarioId]); // Only reload when active scenario changes, not when scenarios array updates
+  }, [activeScenarioId, isSaving]); // Only reload when active scenario changes, not when scenarios array updates
 
   // Auto-save functionality
   useEffect(() => {
     if (!autoSaveEnabled || !activeScenarioId) return;
 
     const interval = setInterval(() => {
-      const activeScenario = scenarios.find(s => s.id === activeScenarioId);
-      if (activeScenario) {
-        saveCurrentScenario(activeScenario.name, activeScenario.description);
+      // Skip if already saving
+      if (isSaving) return;
+      
+      // Get the current scenario data using ref to avoid stale closure
+      const currentScenario = scenariosRef.current.find(s => s.id === activeScenarioId);
+      if (currentScenario) {
+        saveCurrentScenario(currentScenario.name, currentScenario.description);
       }
     }, 30000); // Auto-save every 30 seconds
 
     return () => clearInterval(interval);
-  }, [autoSaveEnabled, activeScenarioId, scenarios]);
+  }, [autoSaveEnabled, activeScenarioId]); // Remove scenarios from dependencies to prevent re-renders
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -2941,9 +2984,15 @@ ${
               </div>
               <p className="text-gray-600">
                 Advanced Real Estate Development Pro Forma
-                {activeScenarioId && lastSaved && (
+                {activeScenarioId && (
                   <span className="text-sm text-gray-500 ml-4">
-                    Auto-saved {lastSaved.toLocaleTimeString()}
+                    {isSaving ? (
+                      <span className="flex items-center gap-1">
+                        <span className="animate-pulse">Saving...</span>
+                      </span>
+                    ) : lastSaved ? (
+                      `Auto-saved ${lastSaved.toLocaleTimeString()}`
+                    ) : null}
                   </span>
                 )}
               </p>
@@ -3370,10 +3419,21 @@ ${
                     </div>
                   )}
 
-                  <div>
-                    <h3 className="font-medium text-gray-900 mb-3">
-                      Hard Costs
-                    </h3>
+                  <div className="border rounded-lg">
+                    <div 
+                      className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50"
+                      onClick={() => toggleDrillDown('hardCosts')}
+                    >
+                      <div className="flex items-center gap-2">
+                        {drillDownState.hardCosts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        <h3 className="font-medium text-gray-900">Hard Costs</h3>
+                      </div>
+                      <span className="text-sm font-medium text-gray-600">
+                        {formatCurrency(calculateTotalCost.hardCostWithContingency)}
+                      </span>
+                    </div>
+                    {drillDownState.hardCosts && (
+                    <div className="p-3 border-t">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -3610,13 +3670,26 @@ ${
                         />
                       </div>
                     </div>
+                    </div>
+                    )}
                   </div>
 
                   {mode === "detailed" && (
-                    <div>
-                      <h3 className="font-medium text-gray-900 mb-3">
-                        Soft Costs
-                      </h3>
+                    <div className="border rounded-lg">
+                      <div 
+                        className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50"
+                        onClick={() => toggleDrillDown('softCosts')}
+                      >
+                        <div className="flex items-center gap-2">
+                          {drillDownState.softCosts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          <h3 className="font-medium text-gray-900">Soft Costs</h3>
+                        </div>
+                        <span className="text-sm font-medium text-gray-600">
+                          {formatCurrency(calculateTotalCost.softCostTotal)}
+                        </span>
+                      </div>
+                      {drillDownState.softCosts && (
+                      <div className="p-3 border-t">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -3679,6 +3752,8 @@ ${
                           />
                         </div>
                       </div>
+                      </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3700,10 +3775,21 @@ ${
               </button>
               {expandedSections.financing && (
                 <div className="p-4 border-t space-y-4">
-                  <div>
-                    <h3 className="font-medium text-gray-900 mb-3">
-                      Construction Loan
-                    </h3>
+                  <div className="border rounded-lg">
+                    <div 
+                      className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50"
+                      onClick={() => toggleDrillDown('financingCosts')}
+                    >
+                      <div className="flex items-center gap-2">
+                        {drillDownState.financingCosts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        <h3 className="font-medium text-gray-900">Construction Loan</h3>
+                      </div>
+                      <span className="text-sm font-medium text-gray-600">
+                        {formatCurrency(calculateFinancing.constructionLoanAmount)}
+                      </span>
+                    </div>
+                    {drillDownState.financingCosts && (
+                    <div className="p-3 border-t">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
@@ -3740,6 +3826,8 @@ ${
                         />
                       </div>
                     </div>
+                    </div>
+                    )}
                   </div>
 
                   {propertyType !== "forSale" && (
@@ -4678,17 +4766,87 @@ ${
                     {combinedReturns.equityMultiple}x
                   </span>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                  <span className="text-gray-700">Total Development Cost</span>
-                  <span className="text-lg font-bold text-purple-600">
-                    {formatCurrency(calculateTotalCost.total)}
-                  </span>
+                <div className="bg-purple-50 rounded-lg">
+                  <div 
+                    className="flex justify-between items-center p-3 cursor-pointer hover:bg-purple-100 transition-colors"
+                    onClick={() => toggleDrillDown('totalDevelopmentCost')}
+                  >
+                    <div className="flex items-center gap-2">
+                      {drillDownState.totalDevelopmentCost ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      <span className="text-gray-700">Total Development Cost</span>
+                    </div>
+                    <span className="text-lg font-bold text-purple-600">
+                      {formatCurrency(calculateTotalCost.total)}
+                    </span>
+                  </div>
+                  {drillDownState.totalDevelopmentCost && (
+                    <div className="px-6 pb-3 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Land Cost</span>
+                        <span className="font-medium">{formatCurrency(landCost)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Hard Costs</span>
+                        <span className="font-medium">{formatCurrency(calculateTotalCost.hardCostWithContingency)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Soft Costs</span>
+                        <span className="font-medium">{formatCurrency(calculateTotalCost.softCostTotal)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Developer Fee</span>
+                        <span className="font-medium">{formatCurrency(calculateTotalCost.developerFee)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm border-t pt-2">
+                        <span className="text-gray-600">Cost per SF</span>
+                        <span className="font-medium">{formatCurrency(calculateTotalCost.total / buildingGFA)}/SF</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
-                  <span className="text-gray-700">Equity Required</span>
-                  <span className="text-lg font-bold text-orange-600">
-                    {formatCurrency(calculateFinancing.equityRequired)}
-                  </span>
+                <div className="bg-orange-50 rounded-lg">
+                  <div 
+                    className="flex justify-between items-center p-3 cursor-pointer hover:bg-orange-100 transition-colors"
+                    onClick={() => toggleDrillDown('equityStructure')}
+                  >
+                    <div className="flex items-center gap-2">
+                      {drillDownState.equityStructure ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      <span className="text-gray-700">Equity Required</span>
+                    </div>
+                    <span className="text-lg font-bold text-orange-600">
+                      {formatCurrency(calculateFinancing.equityRequired)}
+                    </span>
+                  </div>
+                  {drillDownState.equityStructure && (
+                    <div className="px-6 pb-3 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Total Development Cost</span>
+                        <span className="font-medium">{formatCurrency(calculateTotalCost.total)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Construction Loan</span>
+                        <span className="font-medium">({formatCurrency(calculateFinancing.constructionLoanAmount)})</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Mezzanine Loan</span>
+                        <span className="font-medium">({formatCurrency(calculateFinancing.mezzanineLoanAmount)})</span>
+                      </div>
+                      <div className="flex justify-between text-sm border-t pt-2">
+                        <span className="text-gray-600">Total Equity Needed</span>
+                        <span className="font-medium">{formatCurrency(calculateFinancing.equityRequired)}</span>
+                      </div>
+                      <div className="mt-2 pt-2 border-t">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">LP Equity ({equityStructure.lpEquity}%)</span>
+                          <span className="font-medium">{formatCurrency(calculateFinancing.lpEquity)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">GP Equity ({equityStructure.gpEquity}%)</span>
+                          <span className="font-medium">{formatCurrency(calculateFinancing.gpEquity)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {propertyType === "forSale" ? (
                   <>
@@ -4756,8 +4914,23 @@ ${
             </div>
 
             {/* Sources & Uses */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-xl font-semibold mb-4">Sources & Uses</h2>
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() => toggleDrillDown('sourcesUses')}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    {drillDownState.sourcesUses ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    <h2 className="text-xl font-semibold">Sources & Uses</h2>
+                  </div>
+                  <span className="text-sm text-gray-600">
+                    Total: {formatCurrency(calculateTotalCost.total)}
+                  </span>
+                </div>
+              </div>
+              {drillDownState.sourcesUses && (
+              <div className="px-6 pb-6">
               <div className="h-64 mb-4">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -4806,6 +4979,8 @@ ${
                   </span>
                 </div>
               </div>
+              </div>
+              )}
             </div>
 
             {/* Additional Metrics */}
