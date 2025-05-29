@@ -1895,7 +1895,7 @@ export default function App() {
           total: calculateFinancing.totalProjectCost,
           metrics: {
             costPerSF: buildingGFA > 0 ? calculateFinancing.totalProjectCost / buildingGFA : 0,
-            costPerUnit: propertyType === 'apartment' && (unitMix.studios + unitMix.oneBed + unitMix.twoBed + unitMix.threeBed) > 0 ? calculateFinancing.totalProjectCost / (unitMix.studios + unitMix.oneBed + unitMix.twoBed + unitMix.threeBed) : null
+            costPerUnit: propertyType === 'apartment' && unitMix.reduce((sum, unit) => sum + unit.units, 0) > 0 ? calculateFinancing.totalProjectCost / unitMix.reduce((sum, unit) => sum + unit.units, 0) : null
           }
         };
       
@@ -1931,10 +1931,10 @@ export default function App() {
       case 'Yield on Cost':
         const stabilizedNOI = calculateCashFlows?.cashFlows?.[1]?.noi || 0;
         const grossRevenue = calculateCashFlows?.cashFlows?.[1]?.grossRevenue || 
-          ((buildingGFA * grossBuildingEfficiency / 100) * operatingAssumptions.rentPSF);
+          ((buildingGFA * 0.85) * operatingAssumptions.rentPSF);
         const vacancyLoss = grossRevenue * (operatingAssumptions.vacancy / 100);
         const effectiveGrossIncome = grossRevenue - vacancyLoss;
-        const operatingExpenses = (buildingGFA * grossBuildingEfficiency / 100) * operatingAssumptions.opex;
+        const operatingExpenses = (buildingGFA * 0.85) * operatingAssumptions.opex;
         
         return {
           stabilizedNOI,
@@ -2035,6 +2035,7 @@ export default function App() {
       gpIRR: calculateReturns?.gpIRR || "0.00",
       avgCashOnCash: avgCashOnCash,
       paybackPeriod: calculateReturns?.paybackPeriod || 0,
+      sponsorPromoteFee: calculateReturns?.sponsorPromoteFee || 0,
     };
   }, [calculateReturns, avgCashOnCash]);
 
