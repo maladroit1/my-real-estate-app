@@ -546,11 +546,11 @@ export default function App() {
   const [showScenarioManager, setShowScenarioManager] = useState(false);
   const [showScenarioComparison, setShowScenarioComparison] = useState(false);
   const [comparisonScenarios, setComparisonScenarios] = useState<string[]>([]);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [editingScenarioName, setEditingScenarioName] = useState<string>("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   // Use ref to avoid stale closures in interval
   const scenariosRef = useRef(scenarios);
@@ -2965,6 +2965,7 @@ export default function App() {
     setScenarios(updatedScenarios);
     await saveScenarioToDB(scenario);
     setLastSaved(new Date());
+    setHasUnsavedChanges(false);
     
     // Reset the saving flag after a short delay to ensure state updates complete
     setTimeout(() => setIsSaving(false), 100);
@@ -3004,6 +3005,7 @@ export default function App() {
     }
 
     setActiveScenarioId(scenarioId);
+    setHasUnsavedChanges(false);
     
     // Update active status
     const updatedScenarios = scenarios.map(s => ({
@@ -3186,36 +3188,49 @@ export default function App() {
     loadScenarios();
   }, []);
 
-  // Load active scenario after component mounts
+  // Load active scenario only when explicitly changed
   useEffect(() => {
-    // Skip loading if we're in the middle of saving
-    if (isSaving) return;
-    
-    if (activeScenarioId && scenarios.length > 0) {
+    // Only load when activeScenarioId changes (not on save)
+    if (activeScenarioId && scenarios.length > 0 && !isSaving) {
       const activeScenario = scenarios.find(s => s.id === activeScenarioId);
       if (activeScenario) {
-        loadScenario(activeScenarioId);
+        // Only load if this is actually a different scenario
+        const currentData = getCurrentScenarioData();
+        if (activeScenario.data.projectName !== currentData.projectName) {
+          loadScenario(activeScenarioId);
+        }
       }
     }
-  }, [activeScenarioId, isSaving]); // Only reload when active scenario changes or saving state changes
+  }, [activeScenarioId]); // Only depend on activeScenarioId
 
-  // Auto-save functionality
+  // Track unsaved changes
   useEffect(() => {
-    if (!autoSaveEnabled || !activeScenarioId) return;
+    if (activeScenarioId && !isSaving) {
+      setHasUnsavedChanges(true);
+    }
+  }, [
+    propertyType, projectName, landCost, siteAreaAcres, buildingGFA,
+    hardCosts, softCosts, timeline, constructionLoan, permanentLoan,
+    equityStructure, operatingAssumptions, salesAssumptions, unitMix
+  ]);
 
-    const interval = setInterval(() => {
-      // Skip if already saving
-      if (isSaving) return;
-      
-      // Get the current scenario data using ref to avoid stale closure
-      const currentScenario = scenariosRef.current.find(s => s.id === activeScenarioId);
-      if (currentScenario) {
-        saveCurrentScenario(currentScenario.name, currentScenario.description);
+  // Keyboard shortcut for saving (Ctrl+S or Cmd+S)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (activeScenarioId && hasUnsavedChanges && !isSaving) {
+          const activeScenario = scenarios.find(s => s.id === activeScenarioId);
+          if (activeScenario) {
+            saveCurrentScenario(activeScenario.name, activeScenario.description);
+          }
+        }
       }
-    }, 30000); // Auto-save every 30 seconds
+    };
 
-    return () => clearInterval(interval);
-  }, [autoSaveEnabled, activeScenarioId]); // Remove scenarios from dependencies to prevent re-renders
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeScenarioId, hasUnsavedChanges, isSaving, scenarios]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -3254,8 +3269,10 @@ export default function App() {
                       <span className="flex items-center gap-1">
                         <span className="animate-pulse">Saving...</span>
                       </span>
+                    ) : hasUnsavedChanges ? (
+                      <span className="text-yellow-400">Unsaved changes</span>
                     ) : lastSaved ? (
-                      `Auto-saved ${lastSaved.toLocaleTimeString()}`
+                      `Last saved ${lastSaved.toLocaleTimeString()}`
                     ) : null}
                   </span>
                 )}
@@ -3278,13 +3295,27 @@ export default function App() {
                 <BarChartIcon size={20} />
                 Compare
               </button>
-              {/* v1 Save Button (kept for compatibility) */}
+              {/* Manual Save Button */}
               <button
-                onClick={() => setShowSaveDialog(true)}
-                className="px-4 py-2 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 border border-gray-600 flex items-center gap-2 transition-colors"
+                onClick={async () => {
+                  if (activeScenarioId) {
+                    const activeScenario = scenarios.find(s => s.id === activeScenarioId);
+                    if (activeScenario) {
+                      await saveCurrentScenario(activeScenario.name, activeScenario.description);
+                    }
+                  } else {
+                    setShowSaveDialog(true);
+                  }
+                }}
+                disabled={isSaving}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                  hasUnsavedChanges 
+                    ? 'bg-yellow-600 text-gray-900 hover:bg-yellow-500 font-medium animate-pulse' 
+                    : 'bg-gray-700 text-gray-100 hover:bg-gray-600 border border-gray-600'
+                }`}
               >
                 <Save size={20} />
-                Save
+                {isSaving ? 'Saving...' : hasUnsavedChanges ? 'Save Changes' : 'Saved'}
               </button>
               <button
                 onClick={exportToCSV}
@@ -6566,16 +6597,7 @@ export default function App() {
                 ))}
               </div>
               
-              <div className="mt-6 flex justify-between items-center">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={autoSaveEnabled}
-                    onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-sm">Auto-save every 30 seconds</span>
-                </label>
+              <div className="mt-6 flex justify-end">
                 <button
                   onClick={() => setShowScenarioManager(false)}
                   className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
