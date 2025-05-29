@@ -546,6 +546,8 @@ export default function App() {
   const [comparisonScenarios, setComparisonScenarios] = useState<string[]>([]);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
+  const [editingScenarioName, setEditingScenarioName] = useState<string>("");
   
   // IRR Breakdown Modal
   const [showIRRBreakdown, setShowIRRBreakdown] = useState(false);
@@ -2846,11 +2848,13 @@ export default function App() {
   };
 
   const saveCurrentScenario = async (name: string, description?: string) => {
+    // Always create a new scenario with a new ID
+    const newScenarioId = Date.now().toString();
     const scenario: Scenario = {
-      id: activeScenarioId || Date.now().toString(),
+      id: newScenarioId,
       name,
       description,
-      createdAt: activeScenarioId ? scenarios.find(s => s.id === activeScenarioId)?.createdAt || new Date() : new Date(),
+      createdAt: new Date(),
       updatedAt: new Date(),
       isActive: true,
       data: getCurrentScenarioData(),
@@ -2860,17 +2864,9 @@ export default function App() {
     // Deactivate other scenarios
     const updatedScenarios = scenarios.map(s => ({ ...s, isActive: false }));
     
-    if (activeScenarioId) {
-      // Update existing scenario
-      const index = updatedScenarios.findIndex(s => s.id === activeScenarioId);
-      if (index >= 0) {
-        updatedScenarios[index] = scenario;
-      }
-    } else {
-      // Add new scenario
-      updatedScenarios.push(scenario);
-      setActiveScenarioId(scenario.id);
-    }
+    // Add new scenario
+    updatedScenarios.push(scenario);
+    setActiveScenarioId(scenario.id);
 
     setScenarios(updatedScenarios);
     await saveScenarioToDB(scenario);
@@ -2945,6 +2941,23 @@ export default function App() {
 
     setScenarios(scenarios.filter(s => s.id !== scenarioId));
     await deleteScenarioFromDB(scenarioId);
+  };
+
+  const updateScenarioName = async (scenarioId: string, newName: string) => {
+    const updatedScenarios = scenarios.map(s => 
+      s.id === scenarioId 
+        ? { ...s, name: newName, updatedAt: new Date() }
+        : s
+    );
+    setScenarios(updatedScenarios);
+    
+    const scenario = updatedScenarios.find(s => s.id === scenarioId);
+    if (scenario) {
+      await saveScenarioToDB(scenario);
+    }
+    
+    setEditingScenarioId(null);
+    setEditingScenarioName("");
   };
 
   // Goal Seek callback to test different input values
@@ -6178,9 +6191,55 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
                         <h4 className="font-semibold text-lg flex items-center gap-2">
-                          {scenario.name}
-                          {scenario.id === activeScenarioId && (
-                            <span className="text-sm bg-yellow-100 text-yellow-700 px-2 py-1 rounded">Active</span>
+                          {editingScenarioId === scenario.id ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={editingScenarioName}
+                                onChange={(e) => setEditingScenarioName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    updateScenarioName(scenario.id, editingScenarioName);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingScenarioId(null);
+                                    setEditingScenarioName("");
+                                  }
+                                }}
+                                className="px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => updateScenarioName(scenario.id, editingScenarioName)}
+                                className="text-green-600 hover:text-green-700"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingScenarioId(null);
+                                  setEditingScenarioName("");
+                                }}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                ✗
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <span 
+                                className="cursor-pointer hover:text-blue-600"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingScenarioId(scenario.id);
+                                  setEditingScenarioName(scenario.name);
+                                }}
+                              >
+                                {scenario.name}
+                              </span>
+                              {scenario.id === activeScenarioId && (
+                                <span className="text-sm bg-yellow-100 text-yellow-700 px-2 py-1 rounded">Active</span>
+                              )}
+                            </>
                           )}
                         </h4>
                         {scenario.description && (

@@ -25,6 +25,14 @@ yarn-error.log*
 
 # Netlify
 .netlify
+.netlify/
+netlify/functions-serve/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
 
 # API Keys - NEVER commit these!
 *.env

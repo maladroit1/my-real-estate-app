@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Save, Download, Upload, Copy, Trash2, Lock, Unlock,
   GitBranch, Clock, CheckCircle, AlertCircle, Search,
-  Filter, MoreVertical, X, ChevronDown, Archive, Eye, EyeOff
+  Filter, MoreVertical, X, ChevronDown, Archive, Eye, EyeOff,
+  Check, Edit2
 } from 'lucide-react';
 
 // ============= TypeScript Interfaces =============
@@ -428,8 +429,23 @@ const ScenarioCard: React.FC<{
   onToggleLock: () => void;
   onArchive: () => void;
   onExport: () => void;
-}> = ({ scenario, isActive, onSelect, onDuplicate, onDelete, onToggleLock, onArchive, onExport }) => {
+  onUpdateName?: (newName: string) => void;
+}> = ({ scenario, isActive, onSelect, onDuplicate, onDelete, onToggleLock, onArchive, onExport, onUpdateName }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(scenario.name);
+
+  const handleSaveName = () => {
+    if (editName.trim() && editName !== scenario.name && onUpdateName) {
+      onUpdateName(editName.trim());
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditName(scenario.name);
+    setIsEditing(false);
+  };
 
   return (
     <div
@@ -461,7 +477,51 @@ const ScenarioCard: React.FC<{
 
       {/* Header */}
       <div className="pr-12">
-        <h4 className="font-semibold text-gray-900">{scenario.name}</h4>
+        {isEditing ? (
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveName();
+                if (e.key === 'Escape') handleCancelEdit();
+              }}
+              className="font-semibold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoFocus
+            />
+            <button
+              onClick={handleSaveName}
+              className="p-1 text-green-600 hover:bg-green-50 rounded"
+              title="Save"
+            >
+              <Check size={16} />
+            </button>
+            <button
+              onClick={handleCancelEdit}
+              className="p-1 text-red-600 hover:bg-red-50 rounded"
+              title="Cancel"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 group">
+            <h4 className="font-semibold text-gray-900">{scenario.name}</h4>
+            {!scenario.locked && onUpdateName && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditing(true);
+                }}
+                className="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 rounded transition-opacity"
+                title="Edit name"
+              >
+                <Edit2 size={14} />
+              </button>
+            )}
+          </div>
+        )}
         <p className="text-xs text-gray-500 mt-1">
           v{scenario.version} • {formatDate(new Date(scenario.modifiedAt))}
         </p>
@@ -832,6 +892,30 @@ export const ScenarioManager: React.FC<{
     await saveScenario(updated);
   };
 
+  // Update scenario name
+  const updateScenarioName = async (scenario: Scenario, newName: string) => {
+    const updated = {
+      ...scenario,
+      name: newName,
+      modifiedAt: new Date(),
+      metadata: {
+        ...scenario.metadata,
+        changeLog: [
+          ...(scenario.metadata.changeLog || []),
+          {
+            timestamp: new Date(),
+            user: 'Current User',
+            field: 'name',
+            oldValue: scenario.name,
+            newValue: newName,
+            reason: 'Name updated'
+          }
+        ]
+      }
+    };
+    await saveScenario(updated);
+  };
+
   // Export scenario
   const exportScenario = (scenario: Scenario) => {
     const exportData = {
@@ -943,7 +1027,7 @@ export const ScenarioManager: React.FC<{
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => createScenario(currentScenario)}
+              onClick={() => createScenario()}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors"
             >
               <Copy size={16} />
@@ -1024,6 +1108,7 @@ export const ScenarioManager: React.FC<{
                   onToggleLock={() => toggleLock(scenario)}
                   onArchive={() => archiveScenario(scenario)}
                   onExport={() => exportScenario(scenario)}
+                  onUpdateName={(newName) => updateScenarioName(scenario, newName)}
                 />
               </div>
             ))}

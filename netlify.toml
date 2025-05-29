@@ -3,8 +3,13 @@
   publish = "build"
   functions = "netlify/functions"
 
+[dev]
+  command = "npm start"
+  targetPort = 3000
+  port = 8888
+
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "22"
 
 [[redirects]]
   from = "/api/*"
