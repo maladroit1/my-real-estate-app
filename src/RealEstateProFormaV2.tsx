@@ -948,13 +948,14 @@ export default function App() {
         const townhomeRevenue = cottonwoodHeights.townhomes.enabled ? 
           cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgPrice : 0;
 
-        // Calculate TIF revenue
-        const estimatedValue = commercialNOI > 0 ? commercialNOI / (operatingAssumptions.capRate / 100) : 0;
+        // Calculate TIF revenue (with division by zero protection)
+        const estimatedValue = commercialNOI > 0 && operatingAssumptions.capRate > 0 ? 
+          commercialNOI / (operatingAssumptions.capRate / 100) : 0;
         const incrementalValue = Math.max(0, estimatedValue - cottonwoodHeights.tif.baseAssessedValue);
         const annualTIF = cottonwoodHeights.tif.enabled ? 
           (incrementalValue * cottonwoodHeights.tif.taxRate / 100 * cottonwoodHeights.tif.captureRate / 100) : 0;
 
-        // Calculate permanent loan amount based on stabilized NOI
+        // Calculate permanent loan amount based on stabilized NOI (with division by zero protection)
         const stabilizedNOI = commercialNOI + affordableNOI;
         const permanentLoanAmount = permanentLoan.enabled && stabilizedNOI > 0 && operatingAssumptions.capRate > 0 ?
           (stabilizedNOI / (operatingAssumptions.capRate / 100)) * (permanentLoan.ltv / 100) : 0;
@@ -987,9 +988,9 @@ export default function App() {
           });
         }
 
-        // Calculate exit value for Cottonwood Heights
+        // Calculate exit value for Cottonwood Heights (with division by zero protection)
         const exitNOI = commercialNOI + affordableNOI;
-        const salePrice = operatingAssumptions.capRate > 0 ? 
+        const salePrice = operatingAssumptions.capRate > 0 && exitNOI > 0 ? 
           exitNOI / (operatingAssumptions.capRate / 100) : 0;
         const exitCosts = salePrice * (operatingAssumptions.exitCosts / 100);
         const exitProceeds = salePrice - exitCosts - permanentLoanAmount;
@@ -1154,7 +1155,7 @@ export default function App() {
       const year1NOI = year1TotalRevenue - year1OperatingExpenses;
 
       const stabilizedValue =
-        debouncedOperatingAssumptions.capRate > 0
+        debouncedOperatingAssumptions.capRate > 0 && year1NOI > 0
           ? year1NOI / (debouncedOperatingAssumptions.capRate / 100)
           : 0;
       const permanentLoanAmount = permanentLoan.enabled
@@ -1304,7 +1305,7 @@ export default function App() {
 
       const exitNOI = cashFlows[operatingAssumptions.holdPeriod]?.noi || 0;
       const salePrice =
-        operatingAssumptions.capRate > 0
+        operatingAssumptions.capRate > 0 && exitNOI > 0
           ? exitNOI / (operatingAssumptions.capRate / 100)
           : 0;
       const exitCosts = salePrice * (operatingAssumptions.exitCosts / 100);
@@ -1445,8 +1446,71 @@ export default function App() {
   useEffect(() => {
     const warnings: any[] = [];
 
+    // Basic input validations
+    if (landCost < 0) {
+      warnings.push({
+        field: "Land Cost",
+        message: "Land cost cannot be negative",
+        severity: "error",
+      });
+    }
+    
+    if (buildingGFA < 0) {
+      warnings.push({
+        field: "Building GFA",
+        message: "Building square footage cannot be negative",
+        severity: "error",
+      });
+    }
+    
+    if (hardCosts.coreShell < 0 || hardCosts.tenantImprovements < 0) {
+      warnings.push({
+        field: "Hard Costs",
+        message: "Construction costs per SF cannot be negative",
+        severity: "error",
+      });
+    }
+    
+    if (operatingAssumptions.capRate <= 0) {
+      warnings.push({
+        field: "Cap Rate",
+        message: "Cap rate must be greater than 0% for valuation calculations",
+        severity: "error",
+      });
+    }
+    
+    if (operatingAssumptions.capRate > 20) {
+      warnings.push({
+        field: "Cap Rate",
+        message: "Cap rate above 20% is extremely high",
+        severity: "warning",
+      });
+    }
+    
+    if (constructionLoan.rate > 15) {
+      warnings.push({
+        field: "Construction Loan Rate",
+        message: "Interest rate above 15% is unusually high",
+        severity: "warning",
+      });
+    }
+    
+    if (permanentLoan.rate > 12) {
+      warnings.push({
+        field: "Permanent Loan Rate",
+        message: "Interest rate above 12% is unusually high",
+        severity: "warning",
+      });
+    }
+
     // Financing validations
-    if (constructionLoan.ltc > 75) {
+    if (constructionLoan.ltc > 100) {
+      warnings.push({
+        field: "LTC",
+        message: "Loan-to-cost cannot exceed 100%",
+        severity: "error",
+      });
+    } else if (constructionLoan.ltc > 75) {
       warnings.push({
         field: "LTC",
         message: "LTC above 75% is uncommon in current market",
@@ -1504,12 +1568,14 @@ export default function App() {
       });
     }
 
-    // Cost validations
-    const costPerSF =
-      propertyType === "forSale"
-        ? calculateTotalCost.total /
-          (getTotalUnitCount() * salesAssumptions.avgUnitSize)
-        : calculateTotalCost.total / buildingGFA;
+    // Cost validations (with division by zero protection)
+    let costPerSF = 0;
+    if (propertyType === "forSale") {
+      const totalSF = getTotalUnitCount() * salesAssumptions.avgUnitSize;
+      costPerSF = totalSF > 0 ? calculateTotalCost.total / totalSF : 0;
+    } else {
+      costPerSF = buildingGFA > 0 ? calculateTotalCost.total / buildingGFA : 0;
+    }
 
     if (costPerSF < 100) {
       warnings.push({
@@ -1575,6 +1641,44 @@ export default function App() {
         message: "Development spread below 50bps is insufficient",
         severity: "error",
       });
+    }
+
+    // For-Sale specific validations
+    if (propertyType === "forSale") {
+      if (salesAssumptions.salesPace <= 0) {
+        warnings.push({
+          field: "Sales Pace",
+          message: "Sales pace must be greater than 0 units per month",
+          severity: "error",
+        });
+      }
+      
+      if (salesAssumptions.priceEscalation > 10) {
+        warnings.push({
+          field: "Price Escalation",
+          message: "Price escalation above 10% annually is very aggressive",
+          severity: "warning",
+        });
+      }
+      
+      if (salesAssumptions.priceEscalation < 0) {
+        warnings.push({
+          field: "Price Escalation",
+          message: "Negative price escalation means prices are declining",
+          severity: "warning",
+        });
+      }
+      
+      const totalDepositPercent = salesAssumptions.depositStructure.reduce(
+        (sum, d) => sum + d.percentage, 0
+      );
+      if (Math.abs(totalDepositPercent - 100) > 0.01) {
+        warnings.push({
+          field: "Deposit Structure",
+          message: `Deposit percentages should total 100% (currently ${totalDepositPercent}%)`,
+          severity: "error",
+        });
+      }
     }
 
     // Equity structure validation
