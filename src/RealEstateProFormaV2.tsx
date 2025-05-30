@@ -1979,6 +1979,91 @@ export default function App() {
         };
       
       case 'Total Development Cost':
+        // Calculate hard cost components
+        const siteAreaSF = Math.max(0, siteAreaAcres * 43560);
+        const parkingSpaces = includeParking ? Math.round((buildingGFA / 1000) * parkingRatio) : 0;
+        
+        let hardCostBreakdown: any = {};
+        let totalBuildingSF = buildingGFA;
+        
+        if (propertyType === 'cottonwoodHeights') {
+          // Calculate total SF for all Cottonwood Heights components
+          let totalCommercialSF = 0;
+          if (cottonwoodHeights.office.enabled) totalCommercialSF += cottonwoodHeights.office.sf;
+          if (cottonwoodHeights.retail.enabled) totalCommercialSF += cottonwoodHeights.retail.sf;
+          if (cottonwoodHeights.grocery.enabled) totalCommercialSF += cottonwoodHeights.grocery.sf;
+          
+          let totalResidentialSF = 0;
+          if (cottonwoodHeights.townhomes.enabled) {
+            totalResidentialSF += cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize;
+          }
+          if (cottonwoodHeights.affordable.enabled) {
+            totalResidentialSF += cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.avgSize;
+          }
+          
+          totalBuildingSF = totalCommercialSF + totalResidentialSF;
+          const parkingSpacesNeeded = Math.round((totalBuildingSF / 1000) * parkingRatio);
+          
+          hardCostBreakdown = {
+            'Building Construction': (hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF,
+            'Site Work': hardCosts.siteWork,
+            'Structured Parking': parkingSpacesNeeded * hardCosts.parkingStructured,
+            'Landscaping': hardCosts.landscaping * siteAreaSF,
+            'Public Land Contribution': -cottonwoodHeights.publicFinancing.landContribution,
+            'Public Infrastructure Contribution': -cottonwoodHeights.publicFinancing.infrastructureContribution,
+            'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + hardCosts.siteWork + parkingSpacesNeeded * hardCosts.parkingStructured + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
+          };
+        } else if (propertyType === 'forSale') {
+          totalBuildingSF = salesAssumptions.totalUnits * salesAssumptions.avgUnitSize;
+          
+          // Calculate site work based on input method
+          let siteWorkTotal = hardCosts.siteWork;
+          if (hardCosts.siteWorkInputMethod === 'perUnit') {
+            siteWorkTotal = hardCosts.siteWorkPerUnit * getTotalUnitCount();
+          }
+          
+          hardCostBreakdown = {
+            'Building Construction': (hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF,
+            'Site Work': siteWorkTotal,
+            'Parking': parkingSpaces * hardCosts.parkingSurface,
+            'Landscaping': hardCosts.landscaping * siteAreaSF,
+            'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + siteWorkTotal + parkingSpaces * hardCosts.parkingSurface + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
+          };
+        } else {
+          const parkingCost = includeParking ? parkingSpaces * hardCosts.parkingSurface : 0;
+          const landscapingCost = hardCosts.landscapingEnabled ? hardCosts.landscaping * siteAreaSF : 0;
+          
+          hardCostBreakdown = {
+            'Core & Shell': hardCosts.coreShell * totalBuildingSF,
+            'Tenant Improvements': hardCosts.tenantImprovements * totalBuildingSF,
+            'Site Work': hardCosts.siteWork,
+            'Parking': parkingCost,
+            'Landscaping': landscapingCost,
+            'Contingency': (hardCosts.coreShell * totalBuildingSF + hardCosts.tenantImprovements * totalBuildingSF + hardCosts.siteWork + parkingCost + landscapingCost) * (hardCosts.contingency / 100)
+          };
+        }
+        
+        // Calculate soft cost components
+        const hardCostTotal = Object.values(hardCostBreakdown).reduce((sum: number, val: any) => sum + val, 0);
+        
+        const softCostBreakdownWithoutDevFee = {
+          'Architecture & Engineering': softCosts.architectureEngineeringEnabled ? (hardCostTotal * softCosts.architectureEngineering) / 100 : 0,
+          'Permits & Impact Fees': softCosts.permitsImpactFeesEnabled ? totalBuildingSF * softCosts.permitsImpactFees : 0,
+          'Legal & Accounting': softCosts.legalAccountingEnabled ? softCosts.legalAccounting : 0,
+          'Property Tax During Construction': softCosts.propertyTaxConstructionEnabled ? (calculateLandCost * softCosts.propertyTaxConstruction) / 100 : 0,
+          'Insurance During Construction': softCosts.insuranceConstructionEnabled ? (hardCostTotal * softCosts.insuranceConstruction) / 100 : 0,
+          'Marketing & Leasing': softCosts.marketingLeasingEnabled ? softCosts.marketingLeasing : 0,
+          'Construction Management Fee': softCosts.constructionMgmtFeeEnabled ? (hardCostTotal * softCosts.constructionMgmtFee) / 100 : 0
+        };
+        
+        const softCostSubtotal = Object.values(softCostBreakdownWithoutDevFee).reduce((sum: number, val: any) => sum + val, 0);
+        const developerFee = softCosts.developerFeeEnabled ? ((calculateLandCost + hardCostTotal + softCostSubtotal) * softCosts.developerFee) / 100 : 0;
+        
+        const softCostBreakdown = {
+          ...softCostBreakdownWithoutDevFee,
+          'Developer Fee': developerFee
+        };
+        
         return {
           costBreakdown: {
             'Land Cost': calculateLandCost,
@@ -1987,6 +2072,8 @@ export default function App() {
             'Construction Interest': calculateFinancing.constructionInterest,
             'Loan Fees': calculateFinancing.loanFees
           },
+          hardCostBreakdown,
+          softCostBreakdown,
           total: calculateFinancing.totalProjectCost,
           metrics: {
             costPerSF: buildingGFA > 0 ? calculateFinancing.totalProjectCost / buildingGFA : 0,

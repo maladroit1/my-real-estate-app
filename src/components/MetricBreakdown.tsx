@@ -8,6 +8,7 @@ import {
   BarChart3,
   PieChart,
   ChevronRight,
+  ChevronDown,
   Check
 } from 'lucide-react';
 import {
@@ -43,6 +44,7 @@ export const MetricBreakdown: React.FC<MetricBreakdownProps> = React.memo(({
   onClose
 }) => {
   const [copied, setCopied] = useState(false);
+  const [expandedCost, setExpandedCost] = useState<string | null>(null);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -407,18 +409,48 @@ export const MetricBreakdown: React.FC<MetricBreakdownProps> = React.memo(({
         <div>
           <h4 className="font-semibold mb-3">Detailed Breakdown</h4>
           <div className="space-y-2">
-            {costData.map((item, index) => (
-              <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-8 bg-blue-600 rounded"></div>
-                  <div>
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-gray-600">{item.percentage}% of total</p>
+            {costData.map((item, index) => {
+              const isExpandable = (item.name === 'Hard Costs' && data.hardCostBreakdown) || 
+                                 (item.name === 'Soft Costs' && data.softCostBreakdown);
+              const isExpanded = expandedCost === item.name;
+              
+              return (
+                <div key={index}>
+                  <div 
+                    className={`flex justify-between items-center p-3 bg-gray-50 rounded ${isExpandable ? 'cursor-pointer hover:bg-gray-100' : ''}`}
+                    onClick={() => isExpandable && setExpandedCost(isExpanded ? null : item.name)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-8 bg-blue-600 rounded"></div>
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <p className="font-medium">{item.name}</p>
+                          <p className="text-sm text-gray-600">{item.percentage}% of total</p>
+                        </div>
+                        {isExpandable && (
+                          isExpanded ? <ChevronDown size={16} className="text-gray-500" /> : <ChevronRight size={16} className="text-gray-500" />
+                        )}
+                      </div>
+                    </div>
+                    <span className="font-semibold">{formatCurrency(item.value)}</span>
                   </div>
+                  
+                  {/* Expanded breakdown */}
+                  {isExpanded && (
+                    <div className="ml-5 mt-2 space-y-1">
+                      {Object.entries(
+                        item.name === 'Hard Costs' ? data.hardCostBreakdown : data.softCostBreakdown
+                      ).filter(([_, value]) => (value as number) > 0).map(([key, value]: [string, any]) => (
+                        <div key={key} className="flex justify-between items-center p-2 bg-gray-100 rounded text-sm">
+                          <span className="text-gray-700">{key}</span>
+                          <span className="font-medium">{formatCurrency(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <span className="font-semibold">{formatCurrency(item.value)}</span>
-              </div>
-            ))}
+              );
+            })}
             <div className="border-t pt-3">
               <div className="flex justify-between items-center">
                 <span className="font-semibold">Total Development Cost</span>
