@@ -715,20 +715,32 @@ export default function App() {
         hardCostTotal -= cottonwoodHeights.publicFinancing.landContribution;
         hardCostTotal -= cottonwoodHeights.publicFinancing.infrastructureContribution;
       } else if (propertyType === "forSale") {
-        const totalSF =
-          salesAssumptions.totalUnits * salesAssumptions.avgUnitSize;
+        // Use unit mix for unit count
+        const totalUnits = getTotalUnitCount();
+        const totalSF = totalUnits * salesAssumptions.avgUnitSize;
         
         // Calculate site work based on input method
-        let siteWorkTotal = hardCosts.siteWork;
+        let siteWorkBase = hardCosts.siteWork;
         if (hardCosts.siteWorkInputMethod === 'perUnit') {
-          siteWorkTotal = hardCosts.siteWorkPerUnit * getTotalUnitCount();
+          siteWorkBase = hardCosts.siteWorkPerUnit * totalUnits;
         }
+        
+        // Calculate parking cost
+        const parkingCost = includeParking 
+          ? parkingSpaces * hardCosts.parkingSurface 
+          : 0;
+        
+        // Calculate landscaping cost
+        const landscapingCost = hardCosts.landscapingEnabled 
+          ? hardCosts.landscaping * siteAreaSF 
+          : 0;
+        
+        // Site work includes base site work, parking and landscaping
+        const totalSiteWork = siteWorkBase + parkingCost + landscapingCost;
         
         hardCostTotal =
           (hardCosts.coreShell + hardCosts.tenantImprovements) * totalSF +
-          siteWorkTotal +
-          parkingSpaces * hardCosts.parkingSurface +
-          hardCosts.landscaping * siteAreaSF;
+          totalSiteWork;
       } else {
         // Calculate parking cost
         const parkingCost = includeParking 
@@ -1493,7 +1505,7 @@ export default function App() {
     const costPerSF =
       propertyType === "forSale"
         ? calculateTotalCost.total /
-          (salesAssumptions.totalUnits * salesAssumptions.avgUnitSize)
+          (getTotalUnitCount() * salesAssumptions.avgUnitSize)
         : calculateTotalCost.total / buildingGFA;
 
     if (costPerSF < 100) {
@@ -2014,20 +2026,24 @@ export default function App() {
             'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + hardCosts.siteWork + parkingSpacesNeeded * hardCosts.parkingStructured + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
           };
         } else if (propertyType === 'forSale') {
-          totalBuildingSF = salesAssumptions.totalUnits * salesAssumptions.avgUnitSize;
+          // Use unit mix for unit count
+          const totalUnits = getTotalUnitCount();
+          totalBuildingSF = totalUnits * salesAssumptions.avgUnitSize;
           
           // Calculate site work based on input method
-          let siteWorkTotal = hardCosts.siteWork;
+          let siteWorkBase = hardCosts.siteWork;
           if (hardCosts.siteWorkInputMethod === 'perUnit') {
-            siteWorkTotal = hardCosts.siteWorkPerUnit * getTotalUnitCount();
+            siteWorkBase = hardCosts.siteWorkPerUnit * totalUnits;
           }
+          
+          const parkingCost = includeParking ? parkingSpaces * hardCosts.parkingSurface : 0;
+          const landscapingCost = hardCosts.landscapingEnabled ? hardCosts.landscaping * siteAreaSF : 0;
+          const totalSiteWork = siteWorkBase + parkingCost + landscapingCost;
           
           hardCostBreakdown = {
             'Building Construction': (hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF,
-            'Site Work': siteWorkTotal,
-            'Parking': parkingSpaces * hardCosts.parkingSurface,
-            'Landscaping': hardCosts.landscaping * siteAreaSF,
-            'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + siteWorkTotal + parkingSpaces * hardCosts.parkingSurface + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
+            'Site Work (includes parking & landscaping)': totalSiteWork,
+            'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + totalSiteWork) * (hardCosts.contingency / 100)
           };
         } else {
           const parkingCost = includeParking ? parkingSpaces * hardCosts.parkingSurface : 0;
@@ -3956,7 +3972,7 @@ export default function App() {
                             Total SF
                           </label>
                           <div className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg">
-                            {formatNumber(salesAssumptions.totalUnits * salesAssumptions.avgUnitSize)}
+                            {formatNumber(getTotalUnitCount() * salesAssumptions.avgUnitSize)}
                           </div>
                         </div>
                       </div>
