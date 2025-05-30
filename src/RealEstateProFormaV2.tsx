@@ -660,6 +660,17 @@ export default function App() {
     return ['forSale', 'apartment'].includes(propertyType);
   };
 
+  // Update site work total when unit count changes in per-unit mode
+  useEffect(() => {
+    if (hardCosts.siteWorkInputMethod === 'perUnit' && shouldShowPerUnitOption()) {
+      const totalUnits = getTotalUnitCount();
+      setHardCosts(prev => ({
+        ...prev,
+        siteWork: prev.siteWorkPerUnit * totalUnits
+      }));
+    }
+  }, [unitMix, hardCosts.siteWorkInputMethod, hardCosts.siteWorkPerUnit, propertyType]);
+
   // Debounced values for expensive calculations
   const debouncedLandCost = useDebounce(landCost, 300);
   const debouncedBuildingGFA = useDebounce(buildingGFA, 300);
@@ -3983,6 +3994,14 @@ export default function App() {
                     <h3 className="font-medium text-gray-900 mb-3">
                       Hard Costs
                     </h3>
+                    {propertyType === 'forSale' && (
+                      <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                        <div className="text-sm text-blue-900">
+                          <span className="font-medium">Total Construction SF:</span> {formatNumber(getTotalUnitCount() * salesAssumptions.avgUnitSize)} SF
+                          <span className="text-xs ml-2">({getTotalUnitCount()} units × {formatNumber(salesAssumptions.avgUnitSize)} SF/unit)</span>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
