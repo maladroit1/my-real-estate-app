@@ -637,17 +637,9 @@ export default function App() {
   // Helper function to get total unit count based on property type
   const getTotalUnitCount = () => {
     if (propertyType === 'forSale') {
-      let unitCount = 0;
-      
-      if (unitMix && unitMix.length > 0) {
-        unitCount = unitMix.reduce((sum, unit) => sum + unit.units, 0);
-      } else if (buildingGFA > 0) {
-        const avgUnitSize = salesAssumptions?.avgUnitSize || 2000;
-        unitCount = Math.round(buildingGFA / avgUnitSize);
-      }
-      
-      // Ensure we always have at least 1 unit for calculations
-      return Math.max(1, unitCount);
+      // For for-sale, use salesAssumptions.totalUnits directly
+      // unitMix is only for apartment properties
+      return Math.max(1, salesAssumptions.totalUnits || 1);
     } else if (propertyType === 'apartment') {
       return unitMix.reduce((sum, unit) => sum + unit.units, 0);
     }
@@ -669,7 +661,7 @@ export default function App() {
         siteWork: prev.siteWorkPerUnit * totalUnits
       }));
     }
-  }, [unitMix, hardCosts.siteWorkInputMethod, hardCosts.siteWorkPerUnit, propertyType]);
+  }, [unitMix, salesAssumptions.totalUnits, hardCosts.siteWorkInputMethod, hardCosts.siteWorkPerUnit, propertyType]);
 
   // Debounced values for expensive calculations
   const debouncedLandCost = useDebounce(landCost, 300);
