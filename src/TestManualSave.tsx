@@ -118,9 +118,10 @@ const TestManualSave: React.FC = () => {
       let propertyTypeSelect: HTMLSelectElement | null = null;
       
       propertySelectors.forEach(select => {
-        const options = Array.from(select.options);
+        const selectElement = select as HTMLSelectElement;
+        const options = Array.from(selectElement.options);
         if (options.some(opt => opt.text.includes('Office') || opt.text.includes('For Sale'))) {
-          propertyTypeSelect = select;
+          propertyTypeSelect = selectElement;
         }
       });
 
