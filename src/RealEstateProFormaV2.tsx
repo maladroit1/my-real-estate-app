@@ -386,7 +386,7 @@ export default function App() {
 
   // Land Parcels for Cottonwood Heights
   const [landParcels, setLandParcels] = useState([
-    { id: 1, name: "Parcel 1", acres: 10, pricePerAcre: 500000, isDonated: false },
+    { id: 1, name: "Parcel 1", acres: 10, pricePerAcre: 400000, isDonated: false },
     { id: 2, name: "Parcel 2", acres: 5, pricePerAcre: 0, isDonated: true },
     { id: 3, name: "Parcel 3", acres: 5, pricePerAcre: 0, isDonated: true },
   ]);
@@ -752,9 +752,10 @@ export default function App() {
   // Calculate total land cost including parcels
   const calculateLandCost = useMemo(() => {
     if (propertyType === "cottonwoodHeights") {
-      return landParcels.reduce((total, parcel) => {
+      const totalFromParcels = landParcels.reduce((total, parcel) => {
         return total + (parcel.isDonated ? 0 : parcel.acres * parcel.pricePerAcre);
       }, 0);
+      return totalFromParcels;
     }
     return landCost;
   }, [propertyType, landParcels, landCost]);
@@ -783,7 +784,7 @@ export default function App() {
         let townhomeCost = 0;
         let parkingCost = 0;
         
-        // Retail costs
+        // Retail costs - only if enabled
         if (cottonwoodHeights.retail.enabled) {
           const retailSF = cottonwoodHeights.retail.totalSF;
           retailCost = retailSF * cottonwoodHeights.retail.hardCostPSF;
@@ -791,7 +792,7 @@ export default function App() {
           parkingCost += retailParking * hardCosts.parkingStructured;
         }
         
-        // Grocery costs
+        // Grocery costs - only if enabled
         if (cottonwoodHeights.grocery.enabled) {
           const grocerySF = cottonwoodHeights.grocery.totalSF;
           groceryCost = grocerySF * cottonwoodHeights.grocery.hardCostPSF;
@@ -799,7 +800,7 @@ export default function App() {
           parkingCost += groceryParking * hardCosts.parkingStructured;
         }
         
-        // Townhome costs (no parking allocation)
+        // Townhome costs - only if enabled
         if (cottonwoodHeights.townhomes.enabled) {
           const townhomeSF = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize;
           townhomeCost = townhomeSF * cottonwoodHeights.townhomes.hardCostPSF;
@@ -809,11 +810,19 @@ export default function App() {
         const siteWorkCost = hardCosts.siteWork;
         const landscapingCost = hardCosts.landscapingEnabled ? hardCosts.landscaping * siteAreaSF : 0;
         
+        // Calculate base hard cost total
         hardCostTotal = retailCost + groceryCost + townhomeCost + parkingCost + siteWorkCost + landscapingCost;
         
-        // Subtract public financing contributions
-        hardCostTotal -= cottonwoodHeights.publicFinancing.landContribution;
-        hardCostTotal -= cottonwoodHeights.publicFinancing.infrastructureContribution;
+        // Apply public financing contributions (reduce hard costs)
+        if (cottonwoodHeights.publicFinancing.landContribution > 0) {
+          hardCostTotal -= cottonwoodHeights.publicFinancing.landContribution;
+        }
+        if (cottonwoodHeights.publicFinancing.infrastructureContribution > 0) {
+          hardCostTotal -= cottonwoodHeights.publicFinancing.infrastructureContribution;
+        }
+        
+        // Ensure hard cost doesn't go negative
+        hardCostTotal = Math.max(0, hardCostTotal);
       } else if (propertyType === "forSale") {
         // Use unit mix for unit count
         const totalUnits = getTotalUnitCount();
@@ -874,7 +883,7 @@ export default function App() {
           ? softCosts.legalAccounting 
           : 0) +
         (softCosts.propertyTaxConstructionEnabled 
-          ? (landCost * softCosts.propertyTaxConstruction) / 100 
+          ? (calculateLandCost * softCosts.propertyTaxConstruction) / 100 
           : 0) +
         (softCosts.insuranceConstructionEnabled 
           ? (hardCostWithContingency * softCosts.insuranceConstruction) / 100 
@@ -3855,9 +3864,33 @@ export default function App() {
                     ) : (
                       <div className="col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Land Parcels - Total Cost: {formatCurrency(calculateLandCost)}
+                          Land Parcels - Total Cost: {formatCurrency(calculateLandCost)} ({landParcels.filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0)} purchased acres)
                         </label>
                         <div className="space-y-2">
+                          <div className="mb-2 p-2 bg-blue-50 rounded">
+                            <label className="text-sm text-blue-700">Quick Set Total Land Cost:</label>
+                            <div className="flex gap-2 mt-1">
+                              <input
+                                type="number"
+                                placeholder="Enter total land cost"
+                                className="px-2 py-1 border border-blue-300 rounded text-sm"
+                                step="100000"
+                                onChange={(e) => {
+                                  const totalDesired = Number(e.target.value);
+                                  const purchasedAcres = landParcels.filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0);
+                                  if (purchasedAcres > 0 && totalDesired >= 0) {
+                                    const pricePerAcre = Math.round(totalDesired / purchasedAcres);
+                                    const updated = landParcels.map(p => ({
+                                      ...p,
+                                      pricePerAcre: p.isDonated ? 0 : pricePerAcre
+                                    }));
+                                    setLandParcels(updated);
+                                  }
+                                }}
+                              />
+                              <span className="text-sm text-gray-600 self-center">÷ {landParcels.filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0)} acres</span>
+                            </div>
+                          </div>
                           {landParcels.map((parcel, index) => (
                             <div key={parcel.id} className="grid grid-cols-5 gap-2 items-center p-2 bg-gray-50 rounded">
                               <input
@@ -3894,6 +3927,7 @@ export default function App() {
                                 disabled={parcel.isDonated}
                                 className={`px-2 py-1 border border-gray-300 rounded ${parcel.isDonated ? 'bg-gray-100' : ''}`}
                                 placeholder="$/acre"
+                                step="1000"
                               />
                               <label className="flex items-center">
                                 <input
