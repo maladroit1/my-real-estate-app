@@ -393,46 +393,48 @@ export default function App() {
 
   // Cottonwood Heights Mixed-Use Specific
   const [cottonwoodHeights, setCottonwoodHeights] = useState({
-    // Commercial Components
-    office: {
+    // Ground Lease
+    groundLease: {
       enabled: true,
-      sf: 50000,
-      rentPSF: 35,
-      vacancy: 10,
-      opex: 8,
-      tiPSF: 50,
+      baseRent: 0, // Annual base rent
+      percentRent: 5, // % of gross revenue
+      percentRentOnly: false, // If true, no base rent
     },
+    // Commercial Components
     retail: {
       enabled: true,
-      sf: 30000,
-      rentPSF: 30,
-      vacancy: 5,
-      opex: 7,
-      tiPSF: 40,
+      totalSF: 30000,
+      hardCostPSF: 250,
+      tiAllowance: 40,
+      parkingRatio: 4, // per 1,000 SF
     },
     grocery: {
       enabled: true,
-      sf: 45000,
-      rentPSF: 20,
-      vacancy: 0,
-      opex: 5,
-      tiPSF: 100,
+      totalSF: 45000,
+      hardCostPSF: 200,
+      tiAllowance: 100,
+      parkingRatio: 5, // per 1,000 SF
     },
-    // Residential Components
+    // Rental Townhomes
     townhomes: {
       enabled: true,
-      units: 100,
+      units: 50,
       avgSize: 2000,
-      avgPrice: 550000,
-      salesPace: 3,
-    },
-    affordable: {
-      enabled: true,
-      units: 20,
-      avgSize: 900,
-      rentPerUnit: 1200,
+      rentPerUnit: 3500,
+      hardCostPSF: 180,
       vacancy: 5,
-      opex: 5000,
+      opex: 5000, // per unit per year
+    },
+    // Construction Timeline
+    retailTimeline: {
+      preDevelopment: 6,
+      construction: 18,
+      leaseUp: 12,
+    },
+    townhomeTimeline: {
+      preDevelopment: 6,
+      construction: 24,
+      leaseUp: 6,
     },
     // TIF & Public Financing
     tif: {
@@ -456,6 +458,82 @@ export default function App() {
     { phase: 2, units: 30, startMonth: 6, deliveryMonth: 30 },
     { phase: 3, units: 30, startMonth: 12, deliveryMonth: 36 },
   ]);
+
+  // Cottonwood Heights Tenants
+  const [cottonwoodTenants, setCottonwoodTenants] = useState({
+    retail: [
+      {
+        id: 1,
+        name: "Retail Tenant 1",
+        sf: 5000,
+        rentPSF: 35,
+        term: 10,
+        freeRent: 3,
+        tiPSF: 40,
+        startMonth: 0,
+        renewalProbability: 80,
+        percentageRent: true,
+        percentageRate: 6,
+        breakpoint: 350, // $/SF in sales for percentage rent to kick in
+      },
+    ],
+    grocery: [
+      {
+        id: 1,
+        name: "Anchor Grocery",
+        sf: 45000,
+        rentPSF: 20,
+        term: 15,
+        freeRent: 6,
+        tiPSF: 100,
+        startMonth: 0,
+        renewalProbability: 90,
+        percentageRent: true,
+        percentageRate: 2,
+        breakpoint: 500,
+      },
+    ],
+  });
+
+  // Cottonwood Heights Separate Financing
+  const [cottonwoodFinancing, setCottonwoodFinancing] = useState({
+    // Retail/Commercial Financing
+    retailConstruction: {
+      enabled: true,
+      ltc: 65,
+      rate: 8.5,
+      originationFee: 1,
+      term: 18,
+      avgOutstandingPercent: 60,
+    },
+    retailPermanent: {
+      enabled: true,
+      ltv: 70,
+      rate: 6.5,
+      amortization: 30,
+      term: 10,
+      ioPeriod: 0,
+      exitCapRate: 7.5,
+    },
+    // Townhome Financing
+    townhomeConstruction: {
+      enabled: true,
+      ltc: 70,
+      rate: 8.0,
+      originationFee: 1,
+      term: 24,
+      avgOutstandingPercent: 60,
+    },
+    townhomePermanent: {
+      enabled: true,
+      ltv: 75,
+      rate: 6.0,
+      amortization: 30,
+      term: 10,
+      ioPeriod: 0,
+      exitCapRate: 5.5,
+    },
+  });
 
   // Office & Retail Specific
   const [tenants, setTenants] = useState([
@@ -681,39 +759,58 @@ export default function App() {
     return landCost;
   }, [propertyType, landParcels, landCost]);
 
+  // Calculate effective site area (for Cottonwood Heights, use parcels total)
+  const effectiveSiteAreaAcres = useMemo(() => {
+    if (propertyType === "cottonwoodHeights") {
+      return landParcels.reduce((sum, parcel) => sum + parcel.acres, 0);
+    }
+    return siteAreaAcres;
+  }, [propertyType, landParcels, siteAreaAcres]);
+
   // Calculate Total Development Cost
   const calculateTotalCost = useMemo(() => {
     try {
-      const siteAreaSF = Math.max(0, siteAreaAcres * 43560);
+      const siteAreaSF = Math.max(0, effectiveSiteAreaAcres * 43560);
       const parkingSpaces = includeParking
         ? Math.round((buildingGFA / 1000) * parkingRatio)
         : 0;
 
       let hardCostTotal;
       if (propertyType === "cottonwoodHeights") {
-        // Calculate total SF for all Cottonwood Heights components
-        let totalCommercialSF = 0;
-        if (cottonwoodHeights.office.enabled) totalCommercialSF += cottonwoodHeights.office.sf;
-        if (cottonwoodHeights.retail.enabled) totalCommercialSF += cottonwoodHeights.retail.sf;
-        if (cottonwoodHeights.grocery.enabled) totalCommercialSF += cottonwoodHeights.grocery.sf;
+        // Calculate costs separately for each component
+        let retailCost = 0;
+        let groceryCost = 0;
+        let townhomeCost = 0;
+        let parkingCost = 0;
         
-        let totalResidentialSF = 0;
+        // Retail costs
+        if (cottonwoodHeights.retail.enabled) {
+          const retailSF = cottonwoodHeights.retail.totalSF;
+          retailCost = retailSF * cottonwoodHeights.retail.hardCostPSF;
+          const retailParking = Math.round((retailSF / 1000) * cottonwoodHeights.retail.parkingRatio);
+          parkingCost += retailParking * hardCosts.parkingStructured;
+        }
+        
+        // Grocery costs
+        if (cottonwoodHeights.grocery.enabled) {
+          const grocerySF = cottonwoodHeights.grocery.totalSF;
+          groceryCost = grocerySF * cottonwoodHeights.grocery.hardCostPSF;
+          const groceryParking = Math.round((grocerySF / 1000) * cottonwoodHeights.grocery.parkingRatio);
+          parkingCost += groceryParking * hardCosts.parkingStructured;
+        }
+        
+        // Townhome costs (no parking allocation)
         if (cottonwoodHeights.townhomes.enabled) {
-          totalResidentialSF += cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize;
-        }
-        if (cottonwoodHeights.affordable.enabled) {
-          totalResidentialSF += cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.avgSize;
+          const townhomeSF = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize;
+          townhomeCost = townhomeSF * cottonwoodHeights.townhomes.hardCostPSF;
         }
         
-        const totalSF = totalCommercialSF + totalResidentialSF;
-        const parkingSpacesNeeded = Math.round((totalSF / 1000) * parkingRatio);
+        // Site work and landscaping
+        const siteWorkCost = hardCosts.siteWork;
+        const landscapingCost = hardCosts.landscapingEnabled ? hardCosts.landscaping * siteAreaSF : 0;
         
-        hardCostTotal =
-          (hardCosts.coreShell + hardCosts.tenantImprovements) * totalSF +
-          hardCosts.siteWork +
-          parkingSpacesNeeded * hardCosts.parkingStructured + // Structured parking for mixed-use
-          hardCosts.landscaping * siteAreaSF;
-          
+        hardCostTotal = retailCost + groceryCost + townhomeCost + parkingCost + siteWorkCost + landscapingCost;
+        
         // Subtract public financing contributions
         hardCostTotal -= cottonwoodHeights.publicFinancing.landContribution;
         hardCostTotal -= cottonwoodHeights.publicFinancing.infrastructureContribution;
@@ -918,35 +1015,34 @@ export default function App() {
           cumulativeCashFlow: -calculateFinancing.equityRequired,
         });
 
-        // Calculate combined commercial NOI
+        // Calculate combined commercial NOI from tenants
         let commercialNOI = 0;
-        if (cottonwoodHeights.office.enabled) {
-          const officeRevenue = cottonwoodHeights.office.sf * cottonwoodHeights.office.rentPSF * (1 - cottonwoodHeights.office.vacancy / 100);
-          const officeExpenses = cottonwoodHeights.office.sf * cottonwoodHeights.office.opex;
-          commercialNOI += officeRevenue - officeExpenses;
-        }
+        
+        // Calculate retail NOI from all retail tenants
         if (cottonwoodHeights.retail.enabled) {
-          const retailRevenue = cottonwoodHeights.retail.sf * cottonwoodHeights.retail.rentPSF * (1 - cottonwoodHeights.retail.vacancy / 100);
-          const retailExpenses = cottonwoodHeights.retail.sf * cottonwoodHeights.retail.opex;
-          commercialNOI += retailRevenue - retailExpenses;
+          cottonwoodTenants.retail.forEach(tenant => {
+            const tenantRevenue = tenant.sf * tenant.rentPSF * (1 - 5 / 100); // Assuming 5% vacancy
+            const tenantExpenses = tenant.sf * 7; // Assuming $7/SF opex
+            commercialNOI += tenantRevenue - tenantExpenses;
+          });
         }
+        
+        // Calculate grocery NOI from all grocery tenants
         if (cottonwoodHeights.grocery.enabled) {
-          const groceryRevenue = cottonwoodHeights.grocery.sf * cottonwoodHeights.grocery.rentPSF * (1 - cottonwoodHeights.grocery.vacancy / 100);
-          const groceryExpenses = cottonwoodHeights.grocery.sf * cottonwoodHeights.grocery.opex;
-          commercialNOI += groceryRevenue - groceryExpenses;
+          cottonwoodTenants.grocery.forEach(tenant => {
+            const tenantRevenue = tenant.sf * tenant.rentPSF * (1 - 0 / 100); // Assuming 0% vacancy for grocery
+            const tenantExpenses = tenant.sf * 5; // Assuming $5/SF opex
+            commercialNOI += tenantRevenue - tenantExpenses;
+          });
         }
 
-        // Calculate affordable housing NOI
-        let affordableNOI = 0;
-        if (cottonwoodHeights.affordable.enabled) {
-          const affordableRevenue = cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.rentPerUnit * 12 * (1 - cottonwoodHeights.affordable.vacancy / 100);
-          const affordableExpenses = cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.opex;
-          affordableNOI = affordableRevenue - affordableExpenses;
+        // Calculate townhome rental NOI
+        let townhomeNOI = 0;
+        if (cottonwoodHeights.townhomes.enabled) {
+          const townhomeRevenue = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.rentPerUnit * 12 * (1 - cottonwoodHeights.townhomes.vacancy / 100);
+          const townhomeExpenses = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.opex;
+          townhomeNOI = townhomeRevenue - townhomeExpenses;
         }
-
-        // Calculate townhome sales revenue over time
-        const townhomeRevenue = cottonwoodHeights.townhomes.enabled ? 
-          cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgPrice : 0;
 
         // Calculate TIF revenue (with division by zero protection)
         const estimatedValue = commercialNOI > 0 && operatingAssumptions.capRate > 0 ? 
@@ -956,18 +1052,17 @@ export default function App() {
           (incrementalValue * cottonwoodHeights.tif.taxRate / 100 * cottonwoodHeights.tif.captureRate / 100) : 0;
 
         // Calculate permanent loan amount based on stabilized NOI (with division by zero protection)
-        const stabilizedNOI = commercialNOI + affordableNOI;
+        const stabilizedNOI = commercialNOI + townhomeNOI;
         const permanentLoanAmount = permanentLoan.enabled && stabilizedNOI > 0 && operatingAssumptions.capRate > 0 ?
           (stabilizedNOI / (operatingAssumptions.capRate / 100)) * (permanentLoan.ltv / 100) : 0;
 
         // Generate cash flows for hold period
         for (let year = 1; year <= operatingAssumptions.holdPeriod; year++) {
-          const yearNOI = commercialNOI + affordableNOI;
+          const yearNOI = commercialNOI + townhomeNOI;
           const yearTIF = year <= cottonwoodHeights.tif.term ? annualTIF : 0;
           
-          // Assume townhomes sell over first 3 years
-          const townhomeSales = year <= 3 && cottonwoodHeights.townhomes.enabled ? 
-            (townhomeRevenue / 3) : 0;
+          // No townhome sales - they are rental units
+          const townhomeSales = 0;
 
           const totalCashFlow = yearNOI + yearTIF + townhomeSales;
           
@@ -989,7 +1084,7 @@ export default function App() {
         }
 
         // Calculate exit value for Cottonwood Heights (with division by zero protection)
-        const exitNOI = commercialNOI + affordableNOI;
+        const exitNOI = commercialNOI + townhomeNOI;
         const salePrice = operatingAssumptions.capRate > 0 && exitNOI > 0 ? 
           exitNOI / (operatingAssumptions.capRate / 100) : 0;
         const exitCosts = salePrice * (operatingAssumptions.exitCosts / 100);
@@ -1001,7 +1096,7 @@ export default function App() {
           cashFlows[operatingAssumptions.holdPeriod].exitProceeds = exitProceeds;
         }
 
-        return { cashFlows, permanentLoanAmount, year1NOI: commercialNOI + affordableNOI };
+        return { cashFlows, permanentLoanAmount, year1NOI: commercialNOI + townhomeNOI };
       } else if (propertyType === "forSale") {
         cashFlows.push({
           year: 0,
@@ -1352,6 +1447,8 @@ export default function App() {
     salesPhasing,
     timeline,
     constructionLoan,
+    cottonwoodHeights,
+    cottonwoodTenants,
   ]);
 
   // Update operating assumptions when property type changes
@@ -2108,16 +2205,12 @@ export default function App() {
         if (propertyType === 'cottonwoodHeights') {
           // Calculate total SF for all Cottonwood Heights components
           let totalCommercialSF = 0;
-          if (cottonwoodHeights.office.enabled) totalCommercialSF += cottonwoodHeights.office.sf;
-          if (cottonwoodHeights.retail.enabled) totalCommercialSF += cottonwoodHeights.retail.sf;
-          if (cottonwoodHeights.grocery.enabled) totalCommercialSF += cottonwoodHeights.grocery.sf;
+          if (cottonwoodHeights.retail.enabled) totalCommercialSF += cottonwoodHeights.retail.totalSF;
+          if (cottonwoodHeights.grocery.enabled) totalCommercialSF += cottonwoodHeights.grocery.totalSF;
           
           let totalResidentialSF = 0;
           if (cottonwoodHeights.townhomes.enabled) {
             totalResidentialSF += cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize;
-          }
-          if (cottonwoodHeights.affordable.enabled) {
-            totalResidentialSF += cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.avgSize;
           }
           
           totalBuildingSF = totalCommercialSF + totalResidentialSF;
@@ -2274,32 +2367,29 @@ export default function App() {
     }
 
     let commercialNOI = 0;
-    if (cottonwoodHeights.office.enabled) {
-      const officeRevenue = cottonwoodHeights.office.sf * cottonwoodHeights.office.rentPSF * (1 - cottonwoodHeights.office.vacancy / 100);
-      const officeExpenses = cottonwoodHeights.office.sf * cottonwoodHeights.office.opex;
-      commercialNOI += officeRevenue - officeExpenses;
-    }
+    
+    // Calculate retail NOI from all retail tenants
     if (cottonwoodHeights.retail.enabled) {
-      const retailRevenue = cottonwoodHeights.retail.sf * cottonwoodHeights.retail.rentPSF * (1 - cottonwoodHeights.retail.vacancy / 100);
-      const retailExpenses = cottonwoodHeights.retail.sf * cottonwoodHeights.retail.opex;
-      commercialNOI += retailRevenue - retailExpenses;
+      cottonwoodTenants.retail.forEach(tenant => {
+        const tenantRevenue = tenant.sf * tenant.rentPSF * (1 - 5 / 100); // Assuming 5% vacancy
+        const tenantExpenses = tenant.sf * 7; // Assuming $7/SF opex
+        commercialNOI += tenantRevenue - tenantExpenses;
+      });
     }
+    
+    // Calculate grocery NOI from all grocery tenants
     if (cottonwoodHeights.grocery.enabled) {
-      const groceryRevenue = cottonwoodHeights.grocery.sf * cottonwoodHeights.grocery.rentPSF * (1 - cottonwoodHeights.grocery.vacancy / 100);
-      const groceryExpenses = cottonwoodHeights.grocery.sf * cottonwoodHeights.grocery.opex;
-      commercialNOI += groceryRevenue - groceryExpenses;
+      cottonwoodTenants.grocery.forEach(tenant => {
+        const tenantRevenue = tenant.sf * tenant.rentPSF * (1 - 0 / 100); // Assuming 0% vacancy for grocery
+        const tenantExpenses = tenant.sf * 5; // Assuming $5/SF opex
+        commercialNOI += tenantRevenue - tenantExpenses;
+      });
     }
 
-    let affordableNOI = 0;
-    if (cottonwoodHeights.affordable.enabled) {
-      const affordableRevenue = cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.rentPerUnit * 12 * (1 - cottonwoodHeights.affordable.vacancy / 100);
-      const affordableExpenses = cottonwoodHeights.affordable.units * cottonwoodHeights.affordable.opex;
-      affordableNOI = affordableRevenue - affordableExpenses;
-    }
-
-    const netSubsidy = commercialNOI + affordableNOI;
-    const subsidyPerUnit = cottonwoodHeights.affordable.units > 0 ? 
-      (commercialNOI > 0 ? commercialNOI / cottonwoodHeights.affordable.units : 0) : 0;
+    // No longer calculating affordable housing NOI
+    const affordableNOI = 0;
+    const netSubsidy = commercialNOI;
+    const subsidyPerUnit = 0;
 
     return {
       commercialNOI,
@@ -2307,7 +2397,7 @@ export default function App() {
       netSubsidy,
       subsidyPerUnit
     };
-  }, [propertyType, cottonwoodHeights]);
+  }, [propertyType, cottonwoodHeights, cottonwoodTenants]);
 
 
   // Average Cash-on-Cash calculation
@@ -3852,15 +3942,22 @@ export default function App() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Site Area (Acres)
                       </label>
-                      <input
-                        type="number"
-                        value={siteAreaAcres}
-                        onChange={(e) =>
-                          setSiteAreaAcres(Number(e.target.value))
-                        }
-                        step="0.1"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                      />
+                      {propertyType === "cottonwoodHeights" ? (
+                        <div className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg">
+                          {landParcels.reduce((sum, parcel) => sum + parcel.acres, 0).toFixed(1)}
+                          <span className="text-xs text-gray-500 ml-1">(from parcels)</span>
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          value={siteAreaAcres}
+                          onChange={(e) =>
+                            setSiteAreaAcres(Number(e.target.value))
+                          }
+                          step="0.1"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -4090,6 +4187,27 @@ export default function App() {
                     <h3 className="font-medium text-gray-900 mb-3">
                       Hard Costs
                     </h3>
+                    {propertyType === 'cottonwoodHeights' && (
+                      <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                        <div className="text-sm text-blue-900">
+                          <div className="font-medium mb-1">Construction costs are configured per component:</div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between">
+                              <span>• Retail: {formatNumber(cottonwoodHeights.retail.totalSF)} SF @ ${cottonwoodHeights.retail.hardCostPSF}/SF</span>
+                              <span>{formatCurrency(cottonwoodHeights.retail.totalSF * cottonwoodHeights.retail.hardCostPSF)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>• Grocery: {formatNumber(cottonwoodHeights.grocery.totalSF)} SF @ ${cottonwoodHeights.grocery.hardCostPSF}/SF</span>
+                              <span>{formatCurrency(cottonwoodHeights.grocery.totalSF * cottonwoodHeights.grocery.hardCostPSF)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>• Townhomes: {cottonwoodHeights.townhomes.units} units × {formatNumber(cottonwoodHeights.townhomes.avgSize)} SF @ ${cottonwoodHeights.townhomes.hardCostPSF}/SF</span>
+                              <span>{formatCurrency(cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize * cottonwoodHeights.townhomes.hardCostPSF)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {propertyType === 'forSale' && (
                       <div className="mb-4 p-3 bg-blue-50 rounded-lg">
                         <div className="text-sm text-blue-900">
@@ -4098,41 +4216,42 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Core & Shell ($/SF)
-                        </label>
-                        <input
-                          type="number"
-                          value={hardCosts.coreShell}
-                          onChange={(e) =>
-                            setHardCosts({
-                              ...hardCosts,
-                              coreShell: Number(e.target.value),
-                            })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {propertyType === "forSale"
-                            ? "Interior Finishes ($/SF)"
-                            : "TI Allowance ($/SF)"}
-                        </label>
-                        <input
-                          type="number"
-                          value={hardCosts.tenantImprovements}
-                          onChange={(e) =>
-                            setHardCosts({
-                              ...hardCosts,
-                              tenantImprovements: Number(e.target.value),
-                            })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                        />
-                      </div>
+                    {propertyType !== 'cottonwoodHeights' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Core & Shell ($/SF)
+                          </label>
+                          <input
+                            type="number"
+                            value={hardCosts.coreShell}
+                            onChange={(e) =>
+                              setHardCosts({
+                                ...hardCosts,
+                                coreShell: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {propertyType === "forSale"
+                              ? "Interior Finishes ($/SF)"
+                              : "TI Allowance ($/SF)"}
+                          </label>
+                          <input
+                            type="number"
+                            value={hardCosts.tenantImprovements}
+                            onChange={(e) =>
+                              setHardCosts({
+                                ...hardCosts,
+                                tenantImprovements: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                          />
+                        </div>
                       {/* Site Work Input with Toggle */}
                       <div>
                         <div className="flex justify-between items-center mb-1">
@@ -4314,23 +4433,24 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Contingency (%)
-                        </label>
-                        <input
-                          type="number"
-                          value={hardCosts.contingency}
-                          onChange={(e) =>
-                            setHardCosts({
-                              ...hardCosts,
-                              contingency: Number(e.target.value),
-                            })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                        />
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Contingency (%)
+                          </label>
+                          <input
+                            type="number"
+                            value={hardCosts.contingency}
+                            onChange={(e) =>
+                              setHardCosts({
+                                ...hardCosts,
+                                contingency: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
                     {mode === "detailed" && (
                       <>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -4372,11 +4492,107 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Parking Structure Section */}
+                  {includeParking && (
+                    <div>
+                      <h3 className="font-medium text-gray-900 mb-3">
+                        Parking Structure
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Surface Parking ($/space)
+                          </label>
+                          <input
+                            type="number"
+                            value={hardCosts.parkingSurface}
+                            onChange={(e) =>
+                              setHardCosts({
+                                ...hardCosts,
+                                parkingSurface: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Structured Parking ($/space)
+                          </label>
+                          <input
+                            type="number"
+                            value={hardCosts.parkingStructured}
+                            onChange={(e) =>
+                              setHardCosts({
+                                ...hardCosts,
+                                parkingStructured: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                        <div className="text-sm text-gray-700">
+                          <div className="flex justify-between mb-1">
+                            <span>Total Parking Spaces:</span>
+                            <span className="font-medium">
+                              {Math.round((propertyType === "cottonwoodHeights" ? 
+                                (cottonwoodHeights.retail.enabled ? (cottonwoodHeights.retail.totalSF / 1000) * cottonwoodHeights.retail.parkingRatio : 0) +
+                                (cottonwoodHeights.grocery.enabled ? (cottonwoodHeights.grocery.totalSF / 1000) * cottonwoodHeights.grocery.parkingRatio : 0)
+                                : (buildingGFA / 1000) * parkingRatio
+                              ))}
+                            </span>
+                          </div>
+                          {propertyType === "cottonwoodHeights" && (
+                            <>
+                              <div className="flex justify-between text-xs text-gray-500">
+                                <span>Retail Spaces:</span>
+                                <span>{cottonwoodHeights.retail.enabled ? Math.round((cottonwoodHeights.retail.totalSF / 1000) * cottonwoodHeights.retail.parkingRatio) : 0}</span>
+                              </div>
+                              <div className="flex justify-between text-xs text-gray-500">
+                                <span>Grocery Spaces:</span>
+                                <span>{cottonwoodHeights.grocery.enabled ? Math.round((cottonwoodHeights.grocery.totalSF / 1000) * cottonwoodHeights.grocery.parkingRatio) : 0}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {mode === "detailed" && (
                     <div>
                       <h3 className="font-medium text-gray-900 mb-3">
                         Soft Costs
                       </h3>
+                      {propertyType === 'cottonwoodHeights' && (
+                        <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                          <div className="text-sm text-blue-900">
+                            <div className="font-medium mb-1">Soft costs will be allocated proportionally:</div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <div className="font-medium">Commercial (Retail + Grocery):</div>
+                                <div className="text-xs">
+                                  {formatNumber(cottonwoodHeights.retail.totalSF + cottonwoodHeights.grocery.totalSF)} SF
+                                  ({Math.round(((cottonwoodHeights.retail.totalSF + cottonwoodHeights.grocery.totalSF) / 
+                                    (cottonwoodHeights.retail.totalSF + cottonwoodHeights.grocery.totalSF + 
+                                     cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize)) * 100)}%)
+                                </div>
+                              </div>
+                              <div>
+                                <div className="font-medium">Residential (Townhomes):</div>
+                                <div className="text-xs">
+                                  {formatNumber(cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize)} SF
+                                  ({Math.round(((cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize) / 
+                                    (cottonwoodHeights.retail.totalSF + cottonwoodHeights.grocery.totalSF + 
+                                     cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize)) * 100)}%)
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <div className="flex justify-between items-center mb-1">
@@ -4536,19 +4752,34 @@ export default function App() {
             </div>
 
             {/* Financing Section */}
-            <div className="bg-white rounded-lg shadow-sm">
-              <button
-                onClick={() => toggleSection("financing")}
-                className="w-full p-4 flex justify-between items-center hover:bg-gray-50"
-              >
-                <h2 className="text-xl font-semibold">Financing Structure</h2>
-                {expandedSections.financing ? (
-                  <ChevronDown />
-                ) : (
-                  <ChevronRight />
-                )}
-              </button>
-              {expandedSections.financing && (
+            {propertyType === "cottonwoodHeights" ? (
+              <div className="bg-white rounded-lg shadow-sm p-4">
+                <h2 className="text-xl font-semibold mb-3">Financing Structure</h2>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-800">
+                    Financing for Cottonwood Heights is configured separately for each component in the 
+                    <span className="font-medium"> Separate Financing</span> section within Property Configuration above.
+                  </p>
+                  <div className="mt-3 space-y-1 text-xs text-blue-700">
+                    <div>• Retail/Commercial: {cottonwoodFinancing.retailConstruction.ltc}% LTC construction, {cottonwoodFinancing.retailPermanent.ltv}% LTV permanent</div>
+                    <div>• Townhomes: {cottonwoodFinancing.townhomeConstruction.ltc}% LTC construction, {cottonwoodFinancing.townhomePermanent.ltv}% LTV permanent</div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg shadow-sm">
+                <button
+                  onClick={() => toggleSection("financing")}
+                  className="w-full p-4 flex justify-between items-center hover:bg-gray-50"
+                >
+                  <h2 className="text-xl font-semibold">Financing Structure</h2>
+                  {expandedSections.financing ? (
+                    <ChevronDown />
+                  ) : (
+                    <ChevronRight />
+                  )}
+                </button>
+                {expandedSections.financing && (
                 <div className="p-4 border-t space-y-4">
                   <div>
                     <div className="flex items-center justify-between mb-3">
@@ -4809,6 +5040,7 @@ export default function App() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Operating Assumptions */}
             <div className="bg-white rounded-lg shadow-sm">
@@ -4979,7 +5211,61 @@ export default function App() {
                   )}
 
                   {/* Basic Operating Assumptions */}
-                  {propertyType !== "forSale" && (
+                  {propertyType === "cottonwoodHeights" ? (
+                    <div>
+                      <h3 className="font-medium text-gray-900 mb-3">
+                        Market Parameters
+                      </h3>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <p className="text-sm text-blue-800">
+                          Detailed operating assumptions are configured within each component (retail tenants, grocery tenants, and townhomes).
+                          These market parameters apply to overall project valuation.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                            Exit Cap Rate - Retail/Grocery (%)
+                            <InfoTooltip content="Exit cap rate for commercial components. Already configured in separate financing." />
+                          </label>
+                          <input
+                            type="number"
+                            value={cottonwoodFinancing.retailPermanent.exitCapRate}
+                            onChange={(e) =>
+                              setCottonwoodFinancing({
+                                ...cottonwoodFinancing,
+                                retailPermanent: { 
+                                  ...cottonwoodFinancing.retailPermanent, 
+                                  exitCapRate: Number(e.target.value) 
+                                }
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                            Exit Cap Rate - Townhomes (%)
+                            <InfoTooltip content="Exit cap rate for residential components. Already configured in separate financing." />
+                          </label>
+                          <input
+                            type="number"
+                            value={cottonwoodFinancing.townhomePermanent.exitCapRate}
+                            onChange={(e) =>
+                              setCottonwoodFinancing({
+                                ...cottonwoodFinancing,
+                                townhomePermanent: { 
+                                  ...cottonwoodFinancing.townhomePermanent, 
+                                  exitCapRate: Number(e.target.value) 
+                                }
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : propertyType !== "forSale" && (
                     <div>
                       <h3 className="font-medium text-gray-900 mb-3">
                         Operating Parameters
@@ -5230,73 +5516,81 @@ export default function App() {
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                         <h3 className="font-semibold text-yellow-900 mb-2">Cottonwood Heights Mixed-Use Development</h3>
                         <p className="text-sm text-yellow-800">
-                          This property type models a mixed-use development with commercial (office, retail, grocery), 
-                          residential (townhomes, affordable housing), and public financing components.
+                          This property type models a mixed-use development with separate retail/grocery commercial 
+                          and rental townhome components, each with their own financing.
                         </p>
+                      </div>
+
+                      {/* Ground Lease */}
+                      <div className="mb-4 p-4 border rounded-lg bg-gray-50">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-medium">Ground Lease</h4>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={cottonwoodHeights.groundLease.enabled}
+                              onChange={(e) => setCottonwoodHeights({
+                                ...cottonwoodHeights,
+                                groundLease: { ...cottonwoodHeights.groundLease, enabled: e.target.checked }
+                              })}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">Enabled</span>
+                          </label>
+                        </div>
+                        {cottonwoodHeights.groundLease.enabled && (
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-4">
+                              <label className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={cottonwoodHeights.groundLease.percentRentOnly}
+                                  onChange={(e) => setCottonwoodHeights({
+                                    ...cottonwoodHeights,
+                                    groundLease: { ...cottonwoodHeights.groundLease, percentRentOnly: e.target.checked }
+                                  })}
+                                  className="mr-2"
+                                />
+                                <span className="text-sm">100% Percentage Rent (no base rent)</span>
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              {!cottonwoodHeights.groundLease.percentRentOnly && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Annual Base Rent</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.groundLease.baseRent}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      groundLease: { ...cottonwoodHeights.groundLease, baseRent: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                              )}
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage of Revenue (%)</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodHeights.groundLease.percentRent}
+                                  onChange={(e) => setCottonwoodHeights({
+                                    ...cottonwoodHeights,
+                                    groundLease: { ...cottonwoodHeights.groundLease, percentRent: Math.min(10, Number(e.target.value)) }
+                                  })}
+                                  max="10"
+                                  step="0.5"
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Commercial Components */}
                       <div>
                         <h3 className="font-medium text-gray-900 mb-3">Commercial Components</h3>
-                        
-                        {/* Office */}
-                        <div className="mb-4 p-4 border rounded-lg">
-                          <div className="flex items-center justify-between mb-3">
-                            <h4 className="font-medium">Office Space</h4>
-                            <label className="flex items-center">
-                              <input
-                                type="checkbox"
-                                checked={cottonwoodHeights.office.enabled}
-                                onChange={(e) => setCottonwoodHeights({
-                                  ...cottonwoodHeights,
-                                  office: { ...cottonwoodHeights.office, enabled: e.target.checked }
-                                })}
-                                className="mr-2"
-                              />
-                              <span className="text-sm">Enabled</span>
-                            </label>
-                          </div>
-                          {cottonwoodHeights.office.enabled && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.office.sf}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    office: { ...cottonwoodHeights.office, sf: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Rent/SF</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.office.rentPSF}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    office: { ...cottonwoodHeights.office, rentPSF: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Vacancy %</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.office.vacancy}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    office: { ...cottonwoodHeights.office, vacancy: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
 
                         {/* Retail */}
                         <div className="mb-4 p-4 border rounded-lg">
@@ -5316,42 +5610,194 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.retail.enabled && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.retail.sf}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    retail: { ...cottonwoodHeights.retail, sf: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Total SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.retail.totalSF}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      retail: { ...cottonwoodHeights.retail, totalSF: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Hard Cost/SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.retail.hardCostPSF}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      retail: { ...cottonwoodHeights.retail, hardCostPSF: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">TI Allowance/SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.retail.tiAllowance}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      retail: { ...cottonwoodHeights.retail, tiAllowance: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Parking Ratio</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.retail.parkingRatio}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      retail: { ...cottonwoodHeights.retail, parkingRatio: Number(e.target.value) }
+                                    })}
+                                    step="0.5"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
                               </div>
+                              
+                              {/* Retail Tenants */}
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Rent/SF</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.retail.rentPSF}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    retail: { ...cottonwoodHeights.retail, rentPSF: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Vacancy %</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.retail.vacancy}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    retail: { ...cottonwoodHeights.retail, vacancy: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+                                <div className="flex justify-between items-center mb-2">
+                                  <h5 className="text-sm font-medium text-gray-700">Retail Tenants</h5>
+                                  <div className="text-sm text-gray-500">
+                                    Leased: {cottonwoodTenants.retail.reduce((sum, t) => sum + t.sf, 0).toLocaleString()} SF / 
+                                    {cottonwoodHeights.retail.totalSF.toLocaleString()} SF
+                                  </div>
+                                </div>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                  {cottonwoodTenants.retail.map((tenant, index) => (
+                                    <div key={tenant.id} className="p-3 bg-gray-50 rounded-lg">
+                                      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                                        <input
+                                          type="text"
+                                          value={tenant.name}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.retail];
+                                            updated[index].name = e.target.value;
+                                            setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                          }}
+                                          placeholder="Tenant name"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          value={tenant.sf}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.retail];
+                                            updated[index].sf = Number(e.target.value);
+                                            setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                          }}
+                                          placeholder="SF"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          value={tenant.rentPSF}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.retail];
+                                            updated[index].rentPSF = Number(e.target.value);
+                                            setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                          }}
+                                          placeholder="Rent/SF"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          value={tenant.term}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.retail];
+                                            updated[index].term = Number(e.target.value);
+                                            setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                          }}
+                                          placeholder="Term"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <div className="flex items-center gap-1">
+                                          <input
+                                            type="checkbox"
+                                            checked={tenant.percentageRent}
+                                            onChange={(e) => {
+                                              const updated = [...cottonwoodTenants.retail];
+                                              updated[index].percentageRent = e.target.checked;
+                                              setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                            }}
+                                            className="mr-1"
+                                          />
+                                          <span className="text-xs">% Rent</span>
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            setCottonwoodTenants({
+                                              ...cottonwoodTenants,
+                                              retail: cottonwoodTenants.retail.filter((_, i) => i !== index)
+                                            });
+                                          }}
+                                          className="text-red-600 hover:text-red-800 text-sm"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                      {tenant.percentageRent && (
+                                        <div className="grid grid-cols-2 gap-2 mt-2">
+                                          <input
+                                            type="number"
+                                            value={tenant.percentageRate}
+                                            onChange={(e) => {
+                                              const updated = [...cottonwoodTenants.retail];
+                                              updated[index].percentageRate = Number(e.target.value);
+                                              setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                            }}
+                                            placeholder="% Rate"
+                                            className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                          />
+                                          <input
+                                            type="number"
+                                            value={tenant.breakpoint}
+                                            onChange={(e) => {
+                                              const updated = [...cottonwoodTenants.retail];
+                                              updated[index].breakpoint = Number(e.target.value);
+                                              setCottonwoodTenants({...cottonwoodTenants, retail: updated});
+                                            }}
+                                            placeholder="Breakpoint $/SF"
+                                            className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setCottonwoodTenants({
+                                      ...cottonwoodTenants,
+                                      retail: [...cottonwoodTenants.retail, {
+                                        id: Date.now(),
+                                        name: `Retail Tenant ${cottonwoodTenants.retail.length + 1}`,
+                                        sf: 2000,
+                                        rentPSF: 35,
+                                        term: 10,
+                                        freeRent: 3,
+                                        tiPSF: 40,
+                                        startMonth: 0,
+                                        renewalProbability: 80,
+                                        percentageRent: false,
+                                        percentageRate: 6,
+                                        breakpoint: 350,
+                                      }]
+                                    });
+                                  }}
+                                  className="mt-2 text-yellow-600 hover:text-yellow-800 text-sm"
+                                >
+                                  + Add Retail Tenant
+                                </button>
                               </div>
                             </div>
                           )}
@@ -5375,42 +5821,194 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.grocery.enabled && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.grocery.sf}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    grocery: { ...cottonwoodHeights.grocery, sf: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Total SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.grocery.totalSF}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      grocery: { ...cottonwoodHeights.grocery, totalSF: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Hard Cost/SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.grocery.hardCostPSF}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      grocery: { ...cottonwoodHeights.grocery, hardCostPSF: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">TI Allowance/SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.grocery.tiAllowance}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      grocery: { ...cottonwoodHeights.grocery, tiAllowance: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Parking Ratio</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.grocery.parkingRatio}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      grocery: { ...cottonwoodHeights.grocery, parkingRatio: Number(e.target.value) }
+                                    })}
+                                    step="0.5"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
                               </div>
+                              
+                              {/* Grocery Tenants */}
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Rent/SF</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.grocery.rentPSF}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    grocery: { ...cottonwoodHeights.grocery, rentPSF: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Vacancy %</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.grocery.vacancy}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    grocery: { ...cottonwoodHeights.grocery, vacancy: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+                                <div className="flex justify-between items-center mb-2">
+                                  <h5 className="text-sm font-medium text-gray-700">Grocery Tenants</h5>
+                                  <div className="text-sm text-gray-500">
+                                    Leased: {cottonwoodTenants.grocery.reduce((sum, t) => sum + t.sf, 0).toLocaleString()} SF / 
+                                    {cottonwoodHeights.grocery.totalSF.toLocaleString()} SF
+                                  </div>
+                                </div>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                  {cottonwoodTenants.grocery.map((tenant, index) => (
+                                    <div key={tenant.id} className="p-3 bg-gray-50 rounded-lg">
+                                      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                                        <input
+                                          type="text"
+                                          value={tenant.name}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.grocery];
+                                            updated[index].name = e.target.value;
+                                            setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                          }}
+                                          placeholder="Tenant name"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          value={tenant.sf}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.grocery];
+                                            updated[index].sf = Number(e.target.value);
+                                            setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                          }}
+                                          placeholder="SF"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          value={tenant.rentPSF}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.grocery];
+                                            updated[index].rentPSF = Number(e.target.value);
+                                            setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                          }}
+                                          placeholder="Rent/SF"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <input
+                                          type="number"
+                                          value={tenant.term}
+                                          onChange={(e) => {
+                                            const updated = [...cottonwoodTenants.grocery];
+                                            updated[index].term = Number(e.target.value);
+                                            setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                          }}
+                                          placeholder="Term"
+                                          className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                        <div className="flex items-center gap-1">
+                                          <input
+                                            type="checkbox"
+                                            checked={tenant.percentageRent}
+                                            onChange={(e) => {
+                                              const updated = [...cottonwoodTenants.grocery];
+                                              updated[index].percentageRent = e.target.checked;
+                                              setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                            }}
+                                            className="mr-1"
+                                          />
+                                          <span className="text-xs">% Rent</span>
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            setCottonwoodTenants({
+                                              ...cottonwoodTenants,
+                                              grocery: cottonwoodTenants.grocery.filter((_, i) => i !== index)
+                                            });
+                                          }}
+                                          className="text-red-600 hover:text-red-800 text-sm"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                      {tenant.percentageRent && (
+                                        <div className="grid grid-cols-2 gap-2 mt-2">
+                                          <input
+                                            type="number"
+                                            value={tenant.percentageRate}
+                                            onChange={(e) => {
+                                              const updated = [...cottonwoodTenants.grocery];
+                                              updated[index].percentageRate = Number(e.target.value);
+                                              setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                            }}
+                                            placeholder="% Rate"
+                                            className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                          />
+                                          <input
+                                            type="number"
+                                            value={tenant.breakpoint}
+                                            onChange={(e) => {
+                                              const updated = [...cottonwoodTenants.grocery];
+                                              updated[index].breakpoint = Number(e.target.value);
+                                              setCottonwoodTenants({...cottonwoodTenants, grocery: updated});
+                                            }}
+                                            placeholder="Breakpoint $/SF"
+                                            className="px-2 py-1 text-sm border border-gray-300 rounded"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setCottonwoodTenants({
+                                      ...cottonwoodTenants,
+                                      grocery: [...cottonwoodTenants.grocery, {
+                                        id: Date.now(),
+                                        name: `Grocery Tenant ${cottonwoodTenants.grocery.length + 1}`,
+                                        sf: 5000,
+                                        rentPSF: 20,
+                                        term: 15,
+                                        freeRent: 6,
+                                        tiPSF: 100,
+                                        startMonth: 0,
+                                        renewalProbability: 90,
+                                        percentageRent: false,
+                                        percentageRate: 2,
+                                        breakpoint: 500,
+                                      }]
+                                    });
+                                  }}
+                                  className="mt-2 text-yellow-600 hover:text-yellow-800 text-sm"
+                                >
+                                  + Add Grocery Tenant
+                                </button>
                               </div>
                             </div>
                           )}
@@ -5421,10 +6019,10 @@ export default function App() {
                       <div>
                         <h3 className="font-medium text-gray-900 mb-3">Residential Components</h3>
                         
-                        {/* Townhomes */}
+                        {/* Rental Townhomes */}
                         <div className="mb-4 p-4 border rounded-lg">
                           <div className="flex items-center justify-between mb-3">
-                            <h4 className="font-medium">For-Sale Townhomes</h4>
+                            <h4 className="font-medium">Rental Townhomes</h4>
                             <label className="flex items-center">
                               <input
                                 type="checkbox"
@@ -5439,7 +6037,7 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.townhomes.enabled && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
                                 <input
@@ -5465,13 +6063,49 @@ export default function App() {
                                 />
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Avg Price</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Rent/Unit</label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.townhomes.avgPrice}
+                                  value={cottonwoodHeights.townhomes.rentPerUnit}
                                   onChange={(e) => setCottonwoodHeights({
                                     ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, avgPrice: Number(e.target.value) }
+                                    townhomes: { ...cottonwoodHeights.townhomes, rentPerUnit: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Hard Cost/SF</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodHeights.townhomes.hardCostPSF}
+                                  onChange={(e) => setCottonwoodHeights({
+                                    ...cottonwoodHeights,
+                                    townhomes: { ...cottonwoodHeights.townhomes, hardCostPSF: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Vacancy %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodHeights.townhomes.vacancy}
+                                  onChange={(e) => setCottonwoodHeights({
+                                    ...cottonwoodHeights,
+                                    townhomes: { ...cottonwoodHeights.townhomes, vacancy: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">OpEx/Unit/Year</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodHeights.townhomes.opex}
+                                  onChange={(e) => setCottonwoodHeights({
+                                    ...cottonwoodHeights,
+                                    townhomes: { ...cottonwoodHeights.townhomes, opex: Number(e.target.value) }
                                   })}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                 />
@@ -5480,63 +6114,248 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Affordable Housing */}
-                        <div className="mb-4 p-4 border rounded-lg">
-                          <div className="flex items-center justify-between mb-3">
-                            <h4 className="font-medium">Affordable Housing</h4>
-                            <label className="flex items-center">
-                              <input
-                                type="checkbox"
-                                checked={cottonwoodHeights.affordable.enabled}
-                                onChange={(e) => setCottonwoodHeights({
-                                  ...cottonwoodHeights,
-                                  affordable: { ...cottonwoodHeights.affordable, enabled: e.target.checked }
-                                })}
-                                className="mr-2"
-                              />
-                              <span className="text-sm">Enabled</span>
-                            </label>
-                          </div>
-                          {cottonwoodHeights.affordable.enabled && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      </div>
+
+                      {/* Separate Financing */}
+                      <div>
+                        <h3 className="font-medium text-gray-900 mb-3">Separate Financing</h3>
+                        
+                        {/* Retail/Commercial Financing */}
+                        <div className="mb-4 p-4 border border-blue-200 bg-blue-50 rounded-lg">
+                          <h4 className="font-medium mb-3">Retail/Commercial Financing</h4>
+                          
+                          {/* Construction Loan */}
+                          <div className="mb-3">
+                            <h5 className="text-sm font-medium text-gray-700 mb-2">Construction Loan</h5>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
+                                <label className="block text-xs text-gray-600 mb-1">LTC %</label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.affordable.units}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    affordable: { ...cottonwoodHeights.affordable, units: Number(e.target.value) }
+                                  value={cottonwoodFinancing.retailConstruction.ltc}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailConstruction: { ...cottonwoodFinancing.retailConstruction, ltc: Number(e.target.value) }
                                   })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
                                 />
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Avg Size (SF)</label>
+                                <label className="block text-xs text-gray-600 mb-1">Rate %</label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.affordable.avgSize}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    affordable: { ...cottonwoodHeights.affordable, avgSize: Number(e.target.value) }
+                                  value={cottonwoodFinancing.retailConstruction.rate}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailConstruction: { ...cottonwoodFinancing.retailConstruction, rate: Number(e.target.value) }
                                   })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
                                 />
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Rent/Unit</label>
+                                <label className="block text-xs text-gray-600 mb-1">Term (mo)</label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.affordable.rentPerUnit}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    affordable: { ...cottonwoodHeights.affordable, rentPerUnit: Number(e.target.value) }
+                                  value={cottonwoodFinancing.retailConstruction.term}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailConstruction: { ...cottonwoodFinancing.retailConstruction, term: Number(e.target.value) }
                                   })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Orig Fee %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.retailConstruction.originationFee}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailConstruction: { ...cottonwoodFinancing.retailConstruction, originationFee: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
                                 />
                               </div>
                             </div>
-                          )}
+                          </div>
+                          
+                          {/* Permanent Loan */}
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-700 mb-2">Permanent Loan</h5>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">LTV %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.retailPermanent.ltv}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailPermanent: { ...cottonwoodFinancing.retailPermanent, ltv: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Rate %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.retailPermanent.rate}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailPermanent: { ...cottonwoodFinancing.retailPermanent, rate: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Amort (yr)</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.retailPermanent.amortization}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailPermanent: { ...cottonwoodFinancing.retailPermanent, amortization: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Exit Cap %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.retailPermanent.exitCapRate}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    retailPermanent: { ...cottonwoodFinancing.retailPermanent, exitCapRate: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Townhome Financing */}
+                        <div className="mb-4 p-4 border border-green-200 bg-green-50 rounded-lg">
+                          <h4 className="font-medium mb-3">Townhome Financing</h4>
+                          
+                          {/* Construction Loan */}
+                          <div className="mb-3">
+                            <h5 className="text-sm font-medium text-gray-700 mb-2">Construction Loan</h5>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">LTC %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomeConstruction.ltc}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomeConstruction: { ...cottonwoodFinancing.townhomeConstruction, ltc: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Rate %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomeConstruction.rate}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomeConstruction: { ...cottonwoodFinancing.townhomeConstruction, rate: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Term (mo)</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomeConstruction.term}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomeConstruction: { ...cottonwoodFinancing.townhomeConstruction, term: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Orig Fee %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomeConstruction.originationFee}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomeConstruction: { ...cottonwoodFinancing.townhomeConstruction, originationFee: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Permanent Loan */}
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-700 mb-2">Permanent Loan</h5>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">LTV %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomePermanent.ltv}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomePermanent: { ...cottonwoodFinancing.townhomePermanent, ltv: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Rate %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomePermanent.rate}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomePermanent: { ...cottonwoodFinancing.townhomePermanent, rate: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Amort (yr)</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomePermanent.amortization}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomePermanent: { ...cottonwoodFinancing.townhomePermanent, amortization: Number(e.target.value) }
+                                  })}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Exit Cap %</label>
+                                <input
+                                  type="number"
+                                  value={cottonwoodFinancing.townhomePermanent.exitCapRate}
+                                  onChange={(e) => setCottonwoodFinancing({
+                                    ...cottonwoodFinancing,
+                                    townhomePermanent: { ...cottonwoodFinancing.townhomePermanent, exitCapRate: Number(e.target.value) }
+                                  })}
+                                  step="0.25"
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                />
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
 
@@ -5709,7 +6528,19 @@ export default function App() {
                   className="flex justify-between items-center p-3 bg-purple-50 rounded-lg cursor-pointer hover:bg-purple-100 transition-colors"
                   onClick={() => setActiveMetricBreakdown('Total Development Cost')}
                 >
-                  <span className="text-gray-700">Total Development Cost</span>
+                  <div>
+                    <span className="text-gray-700">Total Development Cost</span>
+                    {softCosts.developerFeeEnabled && calculateTotalCost.developerFee > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Land: {formatCurrency(calculateLandCost)} + Hard/Soft: {formatCurrency(calculateTotalCost.total - calculateLandCost - calculateTotalCost.developerFee)} + Dev Fee ({softCosts.developerFee}%): {formatCurrency(calculateTotalCost.developerFee)}
+                      </div>
+                    )}
+                    {propertyType === "cottonwoodHeights" && (cottonwoodHeights.publicFinancing.landContribution > 0 || cottonwoodHeights.publicFinancing.infrastructureContribution > 0) && (
+                      <div className="text-xs text-indigo-600 mt-1">
+                        Public contributions: -${((cottonwoodHeights.publicFinancing.landContribution + cottonwoodHeights.publicFinancing.infrastructureContribution) / 1000000).toFixed(1)}M applied to hard costs
+                      </div>
+                    )}
+                  </div>
                   <span className="text-lg font-bold text-purple-600">
                     {formatCurrency(calculateTotalCost.total)}
                   </span>
@@ -6063,14 +6894,6 @@ export default function App() {
                       {formatCurrency(calculateCrossSubsidy.netSubsidy)}
                     </span>
                   </div>
-                  {cottonwoodHeights.affordable.units > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Subsidy per Affordable Unit</span>
-                      <span className="text-lg font-semibold">
-                        {formatCurrency(calculateCrossSubsidy.subsidyPerUnit)}/year
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
