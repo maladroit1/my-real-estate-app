@@ -90,7 +90,7 @@ export interface ProFormaData {
   // Cottonwood Heights Specific
   cottonwoodHeights?: {
     commercialNOI: number;
-    affordableNOI: number;
+    marketRateNOI: number;
     tifRevenue: number;
     crossSubsidy: number;
   };
@@ -327,7 +327,7 @@ const ProFormaPDFDocument: React.FC<{
               <Text style={[styles.text, { marginTop: 10 }]}>
                 As a mixed-use development, the project leverages commercial components generating
                 {' '}{formatCurrency(data.cottonwoodHeights.commercialNOI)} in annual NOI to support
-                affordable housing, with TIF revenues of {formatCurrency(data.cottonwoodHeights.tifRevenue)}
+                market rate housing, with TIF revenues of {formatCurrency(data.cottonwoodHeights.tifRevenue)}
                 annually enhancing project returns.
               </Text>
             )}

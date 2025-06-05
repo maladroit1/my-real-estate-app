@@ -48,6 +48,15 @@ import { ApiKeyManager } from "./services/ApiKeyManager";
 // import { TestAPIButton } from "./components/TestAPIButton"; // Moved to AIInsightsIntegration
 import { OnyxLogo } from "./components/OnyxLogo";
 import { AIInsightsIntegration } from "./components/AIInsightsIntegration";
+import { GroundLeaseSection } from "./components/GroundLeaseSection";
+import { StateFundingSection } from "./components/StateFundingSection";
+import { 
+  GroundLeaseStructure, 
+  StateFundingStructure,
+  CottonwoodHeightsProperty 
+} from "./types/cottonwoodHeights";
+import { CottonwoodCashFlowCalculator } from "./utils/cottonwoodCashFlowCalculator";
+import { GroundLeaseCalculator } from "./utils/groundLeaseCalculator";
 
 // Type definitions
 interface PropertyType {
@@ -69,6 +78,9 @@ interface CashFlowData {
   salePrice?: number;
   exitProceeds?: number;
   refinanceProceeds?: number;
+  tifRevenue?: number;
+  groundLeasePayment?: number;
+  stateFunding?: number;
 }
 
 // Scenario Management Types
@@ -393,39 +405,120 @@ export default function App() {
 
   // Cottonwood Heights Mixed-Use Specific
   const [cottonwoodHeights, setCottonwoodHeights] = useState({
-    // Ground Lease
+    // Ground Lease Structure
     groundLease: {
       enabled: true,
-      baseRent: 0, // Annual base rent
-      percentRent: 5, // % of gross revenue
-      percentRentOnly: false, // If true, no base rent
-    },
-    // Commercial Components
+      byParcel: true, // Calculate ground lease by parcel
+      acquisitionType: 'donation' as 'donation' | 'purchase',
+      paymentStructure: 'percentage_noi' as 'percentage_revenue' | 'percentage_noi' | 'base_plus_percentage',
+      baseRate: 0, // Annual base rent
+      percentageRate: 0.15, // 15% as decimal
+      escalation: {
+        type: 'cpi' as 'cpi' | 'fixed',
+        rate: 0.025, // 2.5% as decimal
+        cap: 0.03, // 3% as decimal
+      },
+      validationRules: {
+        revenueRange: { min: 0.01, max: 0.03 },
+        noiRange: { min: 0.10, max: 0.25 },
+      },
+      parcelSettings: {
+        retail: {
+          enabled: true,
+          percentageRate: 0.15,
+          baseRate: 0,
+        },
+        grocery: {
+          enabled: true,
+          percentageRate: 0.12,
+          baseRate: 0,
+        },
+        townhomes: {
+          enabled: true,
+          percentageRate: 0.10,
+          baseRate: 0,
+        },
+      },
+    } as GroundLeaseStructure,
+    // Retail Component
     retail: {
       enabled: true,
-      totalSF: 30000,
+      totalSF: 15000,
       hardCostPSF: 250,
-      tiAllowance: 40,
+      tiAllowance: 50,
       parkingRatio: 4, // per 1,000 SF
     },
+    // Medical Office Component (96,000 SF)
+    medicalOffice: {
+      enabled: true,
+      totalSF: 96000,
+      rentableSF: 91200, // 95% efficiency
+      hardCostPSF: 350,
+      tiAllowance: 60,
+      parkingRatio: 4.5, // per 1,000 SF
+      baseRentPSF: 28,
+      specialtyMix: [
+        { type: 'general', squareFootage: 40000, rentPremium: 1.0 },
+        { type: 'dental', squareFootage: 20000, rentPremium: 1.15 },
+        { type: 'urgent-care', squareFootage: 16000, rentPremium: 1.2 },
+        { type: 'diagnostic', squareFootage: 20000, rentPremium: 1.25 },
+      ],
+      vacancy: 5,
+      opexPSF: 12,
+    },
+    // Grocery Anchor Component (16,000 SF)
     grocery: {
       enabled: true,
-      totalSF: 45000,
+      totalSF: 16000,
       hardCostPSF: 200,
       tiAllowance: 100,
       parkingRatio: 5, // per 1,000 SF
+      baseRentPSF: 20,
+      percentageRent: {
+        enabled: true,
+        breakpoint: 500, // $/SF in sales
+        rate: 6, // % above breakpoint
+      },
+      camContribution: 3, // $/SF annually
     },
-    // Rental Townhomes
+    // Rental Townhomes (78 units)
     townhomes: {
       enabled: true,
-      units: 50,
-      avgSize: 2000,
-      rentPerUnit: 3500,
+      units: 78,
+      avgSize: 3100,
+      rentPerUnit: 4200,
       hardCostPSF: 180,
       vacancy: 5,
-      opex: 5000, // per unit per year
+      opexPerUnit: 7500, // per unit per year
+      annualRentGrowth: 3,
+      operatingExpenseRatio: 40, // % of effective gross income
+    },
+    // Parking Structure
+    parking: {
+      enabled: true,
+      structuredSpaces: 850,
+      surfaceSpaces: 200,
+      structuredCostPerSpace: 25000,
+      surfaceCostPerSpace: 5000,
+      monthlyRevenue: 75, // per space for paid parking
+      utilizationRate: 60, // % of spaces generating revenue
+    },
+    // Community Amphitheater
+    amphitheater: {
+      enabled: true,
+      seats: 500,
+      constructionCost: 2500000,
+      annualEvents: 50,
+      avgTicketPrice: 25,
+      avgAttendanceRate: 75, // %
+      annualMaintenanceCost: 150000,
     },
     // Construction Timeline
+    medicalTimeline: {
+      preDevelopment: 6,
+      construction: 24,
+      leaseUp: 18,
+    },
     retailTimeline: {
       preDevelopment: 6,
       construction: 18,
@@ -436,20 +529,54 @@ export default function App() {
       construction: 24,
       leaseUp: 6,
     },
-    // TIF & Public Financing
+    // TIF Structures by Component
     tif: {
       enabled: true,
-      captureRate: 75, // % of incremental taxes captured
-      term: 20, // years
-      baseAssessedValue: 10000000,
-      taxRate: 1.2, // %
+      commercial: {
+        captureRate: 75, // % of incremental taxes captured
+        term: 20, // years
+        baseAssessedValue: 15000000,
+        taxRate: 1.2, // %
+        discountRate: 5, // % for present value
+      },
+      grocery: {
+        captureRate: 75,
+        term: 20,
+        baseAssessedValue: 3000000,
+        taxRate: 1.2,
+        discountRate: 5,
+      },
+      residential: {
+        captureRate: 60,
+        term: 15,
+        baseAssessedValue: 8000000,
+        taxRate: 1.0,
+        discountRate: 5,
+      },
     },
-    publicFinancing: {
-      taxExemptBonds: 0,
-      taxableBonds: 0,
-      grants: 0,
-      landContribution: 0,
-      infrastructureContribution: 0,
+    // State Funding Sources
+    stateFunding: {
+      mixedUseDevelopmentGrant: {
+        enabled: false,
+        amount: 2000000,
+        equityReductionFactor: 1.0,
+      },
+      infrastructureGapFinancing: {
+        enabled: false,
+        amount: 5000000,
+        equityReductionFactor: 0.9,
+      },
+      marketRateHousingTrustFund: {
+        enabled: false,
+        amount: 1500000,
+        equityReductionFactor: 1.0,
+      },
+    },
+    // City Development Fee (optional)
+    cityDevelopmentFee: {
+      enabled: false,
+      amount: 1000000,
+      timing: 'closing' as 'closing' | 'phased',
     },
   });
 
@@ -533,6 +660,65 @@ export default function App() {
       ioPeriod: 0,
       exitCapRate: 5.5,
     },
+  });
+
+  // Cottonwood Heights Shared Equity Structure
+  const [cottonwoodEquity, setCottonwoodEquity] = useState({
+    // Investor Structure
+    investors: [
+      {
+        id: '1',
+        name: 'Lead Institutional Investor',
+        equityContribution: 40, // % of total equity
+        preferredReturn: 8,
+        profitShare: [90, 80, 70, 60], // Waterfall profit shares
+      },
+      {
+        id: '2',
+        name: 'State Pension Fund',
+        equityContribution: 30,
+        preferredReturn: 7,
+        profitShare: [90, 80, 70, 60],
+      },
+      {
+        id: '3',
+        name: 'Local Impact Investor',
+        equityContribution: 20,
+        preferredReturn: 6,
+        profitShare: [90, 80, 70, 60],
+      },
+      {
+        id: '4',
+        name: 'Sponsor/GP',
+        equityContribution: 10,
+        preferredReturn: 0,
+        profitShare: [10, 20, 30, 40], // Promote structure
+      },
+    ],
+    // Waterfall Tiers
+    waterfallEnabled: true,
+    waterfall: [
+      { id: '1', threshold: 'Return of Capital', minIRR: 0, maxIRR: 0 },
+      { id: '2', threshold: 'Preferred Return', minIRR: 0, maxIRR: 8 },
+      { id: '3', threshold: 'Tier 1 Promote', minIRR: 8, maxIRR: 12 },
+      { id: '4', threshold: 'Tier 2 Promote', minIRR: 12, maxIRR: 15 },
+      { id: '5', threshold: 'Tier 3 Promote', minIRR: 15, maxIRR: 100 },
+    ],
+    // Cross-collateralization settings
+    crossCollateralization: true,
+    componentAllocation: {
+      medicalOffice: 45, // % of total project
+      grocery: 10,
+      townhomes: 35,
+      parking: 8,
+      amphitheater: 2,
+    },
+  });
+
+  // Cottonwood Heights State Funding
+  const [cottonwoodStateFunding, setCottonwoodStateFunding] = useState<StateFundingStructure>({
+    enabled: true,
+    sources: [], // Will be populated by StateFundingSection component
   });
 
   // Office & Retail Specific
@@ -659,6 +845,7 @@ export default function App() {
     distributions: false,
     validation: false,
     waterfall: true,
+    cashflow: true,
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -678,6 +865,9 @@ export default function App() {
   // Site work states
   const [siteWorkValidation, setSiteWorkValidation] = useState<string | null>(null);
   const [showSiteWorkTooltip, setShowSiteWorkTooltip] = useState(false);
+  
+  // Waterfall section visibility
+  const [showWaterfallSection, setShowWaterfallSection] = useState(true);
 
   // Format currency
   const formatCurrency = (value: number | null | undefined) => {
@@ -752,7 +942,7 @@ export default function App() {
   // Calculate total land cost including parcels
   const calculateLandCost = useMemo(() => {
     if (propertyType === "cottonwoodHeights") {
-      const totalFromParcels = landParcels.reduce((total, parcel) => {
+      const totalFromParcels = (landParcels || []).reduce((total, parcel) => {
         return total + (parcel.isDonated ? 0 : parcel.acres * parcel.pricePerAcre);
       }, 0);
       return totalFromParcels;
@@ -763,7 +953,7 @@ export default function App() {
   // Calculate effective site area (for Cottonwood Heights, use parcels total)
   const effectiveSiteAreaAcres = useMemo(() => {
     if (propertyType === "cottonwoodHeights") {
-      return landParcels.reduce((sum, parcel) => sum + parcel.acres, 0);
+      return (landParcels || []).reduce((sum, parcel) => sum + parcel.acres, 0);
     }
     return siteAreaAcres;
   }, [propertyType, landParcels, siteAreaAcres]);
@@ -779,20 +969,21 @@ export default function App() {
       let hardCostTotal;
       if (propertyType === "cottonwoodHeights") {
         // Calculate costs separately for each component
-        let retailCost = 0;
+        let medicalOfficeCost = 0;
         let groceryCost = 0;
         let townhomeCost = 0;
         let parkingCost = 0;
+        let amphitheaterCost = 0;
         
-        // Retail costs - only if enabled
-        if (cottonwoodHeights.retail.enabled) {
-          const retailSF = cottonwoodHeights.retail.totalSF;
-          retailCost = retailSF * cottonwoodHeights.retail.hardCostPSF;
-          const retailParking = Math.round((retailSF / 1000) * cottonwoodHeights.retail.parkingRatio);
-          parkingCost += retailParking * hardCosts.parkingStructured;
+        // Medical Office costs (96,000 SF)
+        if (cottonwoodHeights.medicalOffice.enabled) {
+          const medicalSF = cottonwoodHeights.medicalOffice.totalSF;
+          medicalOfficeCost = medicalSF * cottonwoodHeights.medicalOffice.hardCostPSF;
+          const medicalParking = Math.round((medicalSF / 1000) * cottonwoodHeights.medicalOffice.parkingRatio);
+          parkingCost += medicalParking * hardCosts.parkingStructured;
         }
         
-        // Grocery costs - only if enabled
+        // Grocery costs (16,000 SF)
         if (cottonwoodHeights.grocery.enabled) {
           const grocerySF = cottonwoodHeights.grocery.totalSF;
           groceryCost = grocerySF * cottonwoodHeights.grocery.hardCostPSF;
@@ -800,10 +991,24 @@ export default function App() {
           parkingCost += groceryParking * hardCosts.parkingStructured;
         }
         
-        // Townhome costs - only if enabled
+        // Townhome costs (78 units)
         if (cottonwoodHeights.townhomes.enabled) {
           const townhomeSF = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.avgSize;
           townhomeCost = townhomeSF * cottonwoodHeights.townhomes.hardCostPSF;
+        }
+        
+        // Parking Structure costs (dedicated structure beyond retail/medical needs)
+        if (cottonwoodHeights.parking.enabled) {
+          // Structured parking
+          const structuredParkingCost = cottonwoodHeights.parking.structuredSpaces * cottonwoodHeights.parking.structuredCostPerSpace;
+          // Surface parking
+          const surfaceParkingCost = cottonwoodHeights.parking.surfaceSpaces * cottonwoodHeights.parking.surfaceCostPerSpace;
+          parkingCost += structuredParkingCost + surfaceParkingCost;
+        }
+        
+        // Community Amphitheater
+        if (cottonwoodHeights.amphitheater.enabled) {
+          amphitheaterCost = cottonwoodHeights.amphitheater.constructionCost;
         }
         
         // Site work and landscaping
@@ -811,15 +1016,21 @@ export default function App() {
         const landscapingCost = hardCosts.landscapingEnabled ? hardCosts.landscaping * siteAreaSF : 0;
         
         // Calculate base hard cost total
-        hardCostTotal = retailCost + groceryCost + townhomeCost + parkingCost + siteWorkCost + landscapingCost;
+        hardCostTotal = medicalOfficeCost + groceryCost + townhomeCost + parkingCost + amphitheaterCost + siteWorkCost + landscapingCost;
         
-        // Apply public financing contributions (reduce hard costs)
-        if (cottonwoodHeights.publicFinancing.landContribution > 0) {
-          hardCostTotal -= cottonwoodHeights.publicFinancing.landContribution;
+        // Apply state funding contributions (reduce hard costs)
+        let stateFundingReduction = 0;
+        if (cottonwoodHeights.stateFunding.mixedUseDevelopmentGrant.enabled) {
+          stateFundingReduction += cottonwoodHeights.stateFunding.mixedUseDevelopmentGrant.amount;
         }
-        if (cottonwoodHeights.publicFinancing.infrastructureContribution > 0) {
-          hardCostTotal -= cottonwoodHeights.publicFinancing.infrastructureContribution;
+        if (cottonwoodHeights.stateFunding.infrastructureGapFinancing.enabled) {
+          stateFundingReduction += cottonwoodHeights.stateFunding.infrastructureGapFinancing.amount;
         }
+        if (cottonwoodHeights.stateFunding.marketRateHousingTrustFund.enabled) {
+          stateFundingReduction += cottonwoodHeights.stateFunding.marketRateHousingTrustFund.amount;
+        }
+        
+        hardCostTotal -= stateFundingReduction;
         
         // Ensure hard cost doesn't go negative
         hardCostTotal = Math.max(0, hardCostTotal);
@@ -1026,39 +1237,46 @@ export default function App() {
 
         // Calculate combined commercial NOI from tenants
         let commercialNOI = 0;
+        let commercialRevenue = 0;
+        let retailRevenue = 0;
+        let groceryRevenue = 0;
         
         // Calculate retail NOI from all retail tenants
         if (cottonwoodHeights.retail.enabled) {
           cottonwoodTenants.retail.forEach(tenant => {
-            const tenantRevenue = tenant.sf * tenant.rentPSF * (1 - 5 / 100); // Assuming 5% vacancy
-            const tenantExpenses = tenant.sf * 7; // Assuming $7/SF opex
+            const tenantRevenue = tenant.sf * tenant.rentPSF * 12 * (1 - 5 / 100); // Annual revenue with 5% vacancy
+            const tenantExpenses = tenant.sf * 7 * 12; // Annual expenses at $7/SF
+            retailRevenue += tenantRevenue;
             commercialNOI += tenantRevenue - tenantExpenses;
           });
+          commercialRevenue += retailRevenue;
         }
         
         // Calculate grocery NOI from all grocery tenants
         if (cottonwoodHeights.grocery.enabled) {
           cottonwoodTenants.grocery.forEach(tenant => {
-            const tenantRevenue = tenant.sf * tenant.rentPSF * (1 - 0 / 100); // Assuming 0% vacancy for grocery
-            const tenantExpenses = tenant.sf * 5; // Assuming $5/SF opex
+            const tenantRevenue = tenant.sf * tenant.rentPSF * 12 * (1 - 0 / 100); // Annual revenue with 0% vacancy for grocery
+            const tenantExpenses = tenant.sf * 5 * 12; // Annual expenses at $5/SF
+            groceryRevenue += tenantRevenue;
             commercialNOI += tenantRevenue - tenantExpenses;
           });
         }
 
         // Calculate townhome rental NOI
         let townhomeNOI = 0;
+        let townhomeRevenue = 0;
         if (cottonwoodHeights.townhomes.enabled) {
-          const townhomeRevenue = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.rentPerUnit * 12 * (1 - cottonwoodHeights.townhomes.vacancy / 100);
-          const townhomeExpenses = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.opex;
+          townhomeRevenue = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.rentPerUnit * 12 * (1 - cottonwoodHeights.townhomes.vacancy / 100);
+          const townhomeExpenses = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.opexPerUnit;
           townhomeNOI = townhomeRevenue - townhomeExpenses;
         }
 
         // Calculate TIF revenue (with division by zero protection)
         const estimatedValue = commercialNOI > 0 && operatingAssumptions.capRate > 0 ? 
           commercialNOI / (operatingAssumptions.capRate / 100) : 0;
-        const incrementalValue = Math.max(0, estimatedValue - cottonwoodHeights.tif.baseAssessedValue);
+        const incrementalValue = Math.max(0, estimatedValue - cottonwoodHeights.tif.commercial.baseAssessedValue);
         const annualTIF = cottonwoodHeights.tif.enabled ? 
-          (incrementalValue * cottonwoodHeights.tif.taxRate / 100 * cottonwoodHeights.tif.captureRate / 100) : 0;
+          (incrementalValue * cottonwoodHeights.tif.commercial.taxRate / 100 * cottonwoodHeights.tif.commercial.captureRate / 100) : 0;
 
         // Calculate permanent loan amount based on stabilized NOI (with division by zero protection)
         const stabilizedNOI = commercialNOI + townhomeNOI;
@@ -1068,12 +1286,58 @@ export default function App() {
         // Generate cash flows for hold period
         for (let year = 1; year <= operatingAssumptions.holdPeriod; year++) {
           const yearNOI = commercialNOI + townhomeNOI;
-          const yearTIF = year <= cottonwoodHeights.tif.term ? annualTIF : 0;
+          const yearTIF = year <= cottonwoodHeights.tif.commercial.term ? annualTIF : 0;
           
           // No townhome sales - they are rental units
           const townhomeSales = 0;
 
-          const totalCashFlow = yearNOI + yearTIF + townhomeSales;
+          // Use actual gross revenue for ground lease calculation
+          const grossRevenue = commercialRevenue + townhomeRevenue;
+          
+          // Calculate ground lease payment
+          let groundLeasePayment = 0;
+          if (cottonwoodHeights.groundLease.enabled) {
+            if (cottonwoodHeights.groundLease.byParcel && cottonwoodHeights.groundLease.parcelSettings) {
+              // Calculate ground lease by parcel
+              if (cottonwoodHeights.groundLease.parcelSettings.retail?.enabled && cottonwoodHeights.retail.enabled) {
+                const retailNOI = retailRevenue - (retailRevenue * 0.3); // Assuming 30% opex for retail
+                const retailPayment = retailNOI * cottonwoodHeights.groundLease.parcelSettings.retail.percentageRate;
+                groundLeasePayment += retailPayment;
+              }
+              if (cottonwoodHeights.groundLease.parcelSettings.grocery?.enabled && cottonwoodHeights.grocery.enabled) {
+                const groceryNOI = groceryRevenue - (groceryRevenue * 0.25); // Assuming 25% opex for grocery
+                const groceryPayment = groceryNOI * cottonwoodHeights.groundLease.parcelSettings.grocery.percentageRate;
+                groundLeasePayment += groceryPayment;
+              }
+              if (cottonwoodHeights.groundLease.parcelSettings.townhomes?.enabled && cottonwoodHeights.townhomes.enabled) {
+                const townhomePayment = townhomeNOI * cottonwoodHeights.groundLease.parcelSettings.townhomes.percentageRate;
+                groundLeasePayment += townhomePayment;
+              }
+            } else {
+              // Calculate ground lease for entire project
+              const groundLeaseCalc = new GroundLeaseCalculator(cottonwoodHeights.groundLease);
+              const payment = groundLeaseCalc.calculateAnnualPayment(year, grossRevenue, yearNOI);
+              groundLeasePayment = payment.totalPayment;
+            }
+          }
+          
+          // Calculate state funding (typically in early years)
+          let stateFundingAmount = 0;
+          if (cottonwoodStateFunding.enabled && year <= 3) {
+            cottonwoodStateFunding.sources.forEach(source => {
+              if (source.enabled) {
+                if (source.disbursementSchedule === 'upfront' && year === 1) {
+                  stateFundingAmount += source.amount;
+                } else if (source.disbursementSchedule === 'milestone' && year <= 3) {
+                  stateFundingAmount += source.amount / 3;
+                } else if (source.disbursementSchedule === 'completion' && year === 3) {
+                  stateFundingAmount += source.amount;
+                }
+              }
+            });
+          }
+
+          const totalCashFlow = yearNOI + yearTIF + townhomeSales + stateFundingAmount - groundLeasePayment;
           
           // Calculate debt service
           const debtService = permanentLoan.enabled && permanentLoanAmount > 0 && permanentLoan.rate > 0 ?
@@ -1087,8 +1351,11 @@ export default function App() {
             debtService,
             cashFlow: totalCashFlow - debtService,
             cumulativeCashFlow: (cashFlows[year - 1]?.cumulativeCashFlow || 0) + (totalCashFlow - debtService),
-            grossRevenue: totalCashFlow,
+            grossRevenue: grossRevenue,
             operatingExpenses: 0,
+            tifRevenue: yearTIF,
+            groundLeasePayment: groundLeasePayment,
+            stateFunding: stateFundingAmount,
           });
         }
 
@@ -1458,6 +1725,7 @@ export default function App() {
     constructionLoan,
     cottonwoodHeights,
     cottonwoodTenants,
+    cottonwoodStateFunding,
   ]);
 
   // Update operating assumptions when property type changes
@@ -2122,46 +2390,121 @@ export default function App() {
         totalRevenue: 0,
         npv: 0,
         incrementalValue: 0,
-        yearByYear: []
+        projectedValue: 0,
+        yearByYear: [],
+        componentBreakdown: {},
+        totalBondingCapacity: 0
       };
     }
 
-    const baseValue = cottonwoodHeights.tif.baseAssessedValue;
-    const projectedValue = baseValue * 7.5; // Default to 7.5x for $75M from $10M base
-    const incrementalValue = Math.max(0, projectedValue - baseValue);
-    const taxRate = cottonwoodHeights.tif.taxRate / 100;
-    const captureRate = cottonwoodHeights.tif.captureRate / 100;
-    const annualTIF = incrementalValue * taxRate * captureRate;
-    
-    let totalRevenue = 0;
-    let npv = 0;
-    const discountRate = 0.05; // 5% discount rate
-    const yearByYear = [];
-
-    for (let year = 1; year <= cottonwoodHeights.tif.term; year++) {
-      const yearRevenue = annualTIF;
-      totalRevenue += yearRevenue;
-      const discountedValue = yearRevenue / Math.pow(1 + discountRate, year);
-      npv += discountedValue;
+    // Calculate TIF for each component
+    const calculateComponentTIF = (component: any, componentName: string) => {
+      const baseValue = component.baseAssessedValue;
+      // Project values based on development cost and expected cap rates
+      let projectedValue = baseValue;
       
-      yearByYear.push({
+      if (componentName === 'commercial') {
+        // Medical office at 7.5% cap rate
+        const medicalNOI = cottonwoodHeights.medicalOffice.enabled ? 
+          cottonwoodHeights.medicalOffice.rentableSF * cottonwoodHeights.medicalOffice.baseRentPSF * 0.85 : 0;
+        projectedValue = medicalNOI > 0 ? medicalNOI / 0.075 : baseValue;
+      } else if (componentName === 'grocery') {
+        // Grocery at 7% cap rate
+        const groceryNOI = cottonwoodHeights.grocery.enabled ?
+          cottonwoodHeights.grocery.totalSF * cottonwoodHeights.grocery.baseRentPSF * 0.90 : 0;
+        projectedValue = groceryNOI > 0 ? groceryNOI / 0.07 : baseValue;
+      } else if (componentName === 'residential') {
+        // Townhomes at 5.5% cap rate
+        const townhomeNOI = cottonwoodHeights.townhomes.enabled ?
+          cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.rentPerUnit * 12 * 0.60 : 0;
+        projectedValue = townhomeNOI > 0 ? townhomeNOI / 0.055 : baseValue;
+      }
+      
+      const incrementalValue = Math.max(0, projectedValue - baseValue);
+      const taxRate = component.taxRate / 100;
+      const captureRate = component.captureRate / 100;
+      const annualTIF = incrementalValue * taxRate * captureRate;
+      
+      let totalRevenue = 0;
+      let npv = 0;
+      const discountRate = component.discountRate / 100;
+      const yearByYear = [];
+
+      for (let year = 1; year <= component.term; year++) {
+        const yearRevenue = annualTIF;
+        totalRevenue += yearRevenue;
+        const discountedValue = yearRevenue / Math.pow(1 + discountRate, year);
+        npv += discountedValue;
+        
+        yearByYear.push({
+          year,
+          revenue: yearRevenue,
+          discountedValue,
+          cumulativeRevenue: totalRevenue,
+          cumulativeNPV: npv
+        });
+      }
+
+      return {
+        baseValue,
+        projectedValue,
+        incrementalValue,
+        annualRevenue: annualTIF,
+        totalRevenue,
+        npv,
+        bondingCapacity: npv * 0.9, // 90% of NPV for bonding
+        yearByYear
+      };
+    };
+
+    // Calculate for each component
+    const commercialTIF = calculateComponentTIF(cottonwoodHeights.tif.commercial, 'commercial');
+    const groceryTIF = calculateComponentTIF(cottonwoodHeights.tif.grocery, 'grocery');
+    const residentialTIF = calculateComponentTIF(cottonwoodHeights.tif.residential, 'residential');
+
+    // Consolidate results
+    const totalAnnualRevenue = commercialTIF.annualRevenue + groceryTIF.annualRevenue + residentialTIF.annualRevenue;
+    const totalNPV = commercialTIF.npv + groceryTIF.npv + residentialTIF.npv;
+    const totalBondingCapacity = commercialTIF.bondingCapacity + groceryTIF.bondingCapacity + residentialTIF.bondingCapacity;
+
+    // Merge year-by-year data
+    const maxTerm = Math.max(
+      cottonwoodHeights.tif.commercial.term,
+      cottonwoodHeights.tif.grocery.term,
+      cottonwoodHeights.tif.residential.term
+    );
+    
+    const consolidatedYearByYear = [];
+    for (let year = 1; year <= maxTerm; year++) {
+      const commercialYear = commercialTIF.yearByYear.find(y => y.year === year) || { revenue: 0, discountedValue: 0 };
+      const groceryYear = groceryTIF.yearByYear.find(y => y.year === year) || { revenue: 0, discountedValue: 0 };
+      const residentialYear = residentialTIF.yearByYear.find(y => y.year === year) || { revenue: 0, discountedValue: 0 };
+      
+      consolidatedYearByYear.push({
         year,
-        revenue: yearRevenue,
-        discountedValue,
-        cumulativeRevenue: totalRevenue,
-        cumulativeNPV: npv
+        revenue: commercialYear.revenue + groceryYear.revenue + residentialYear.revenue,
+        discountedValue: commercialYear.discountedValue + groceryYear.discountedValue + residentialYear.discountedValue,
+        commercialRevenue: commercialYear.revenue,
+        groceryRevenue: groceryYear.revenue,
+        residentialRevenue: residentialYear.revenue
       });
     }
 
     return {
-      annualRevenue: annualTIF,
-      totalRevenue,
-      npv,
-      incrementalValue,
-      projectedValue,
-      yearByYear
+      annualRevenue: totalAnnualRevenue,
+      totalRevenue: commercialTIF.totalRevenue + groceryTIF.totalRevenue + residentialTIF.totalRevenue,
+      npv: totalNPV,
+      incrementalValue: commercialTIF.incrementalValue + groceryTIF.incrementalValue + residentialTIF.incrementalValue,
+      projectedValue: commercialTIF.projectedValue + groceryTIF.projectedValue + residentialTIF.projectedValue,
+      yearByYear: consolidatedYearByYear,
+      componentBreakdown: {
+        commercial: commercialTIF,
+        grocery: groceryTIF,
+        residential: residentialTIF
+      },
+      totalBondingCapacity
     };
-  }, [propertyType, cottonwoodHeights.tif]);
+  }, [propertyType, cottonwoodHeights]);
 
   // Prepare metric breakdown data
   const getMetricBreakdownData = (metric: string) => {
@@ -2230,8 +2573,8 @@ export default function App() {
             'Site Work': hardCosts.siteWork,
             'Structured Parking': parkingSpacesNeeded * hardCosts.parkingStructured,
             'Landscaping': hardCosts.landscaping * siteAreaSF,
-            'Public Land Contribution': -cottonwoodHeights.publicFinancing.landContribution,
-            'Public Infrastructure Contribution': -cottonwoodHeights.publicFinancing.infrastructureContribution,
+            // 'Public Land Contribution': -cottonwoodHeights.publicFinancing.landContribution,
+            // 'Public Infrastructure Contribution': -cottonwoodHeights.publicFinancing.infrastructureContribution,
             'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + hardCosts.siteWork + parkingSpacesNeeded * hardCosts.parkingStructured + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
           };
         } else if (propertyType === 'forSale') {
@@ -2369,7 +2712,7 @@ export default function App() {
     if (propertyType !== "cottonwoodHeights") {
       return {
         commercialNOI: 0,
-        affordableNOI: 0,
+        marketRateNOI: 0,
         netSubsidy: 0,
         subsidyPerUnit: 0
       };
@@ -2395,14 +2738,20 @@ export default function App() {
       });
     }
 
-    // No longer calculating affordable housing NOI
-    const affordableNOI = 0;
-    const netSubsidy = commercialNOI;
-    const subsidyPerUnit = 0;
+    // Calculate townhome NOI (market rate housing)
+    let townhomeNOI = 0;
+    if (cottonwoodHeights.townhomes.enabled) {
+      const townhomeRevenue = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.rentPerUnit * 12 * (1 - cottonwoodHeights.townhomes.vacancy / 100);
+      const townhomeExpenses = cottonwoodHeights.townhomes.units * cottonwoodHeights.townhomes.opexPerUnit;
+      townhomeNOI = townhomeRevenue - townhomeExpenses;
+    }
+
+    const netSubsidy = commercialNOI + townhomeNOI;
+    const subsidyPerUnit = cottonwoodHeights.townhomes.units > 0 ? townhomeNOI / cottonwoodHeights.townhomes.units : 0;
 
     return {
       commercialNOI,
-      affordableNOI,
+      marketRateNOI: townhomeNOI,
       netSubsidy,
       subsidyPerUnit
     };
@@ -3089,7 +3438,7 @@ export default function App() {
       // Cottonwood Heights Specific
       cottonwoodHeights: propertyType === "cottonwoodHeights" ? {
         commercialNOI: calculateCrossSubsidy.commercialNOI,
-        affordableNOI: calculateCrossSubsidy.affordableNOI,
+        marketRateNOI: calculateCrossSubsidy.marketRateNOI,
         tifRevenue: calculateTIFAnalysis.annualRevenue,
         crossSubsidy: calculateCrossSubsidy.netSubsidy,
       } : undefined,
@@ -3864,7 +4213,7 @@ export default function App() {
                     ) : (
                       <div className="col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Land Parcels - Total Cost: {formatCurrency(calculateLandCost)} ({landParcels.filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0)} purchased acres)
+                          Land Parcels - Total Cost: {formatCurrency(calculateLandCost)} ({(landParcels || []).filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0)} purchased acres)
                         </label>
                         <div className="space-y-2">
                           <div className="mb-2 p-2 bg-blue-50 rounded">
@@ -3877,7 +4226,7 @@ export default function App() {
                                 step="100000"
                                 onChange={(e) => {
                                   const totalDesired = Number(e.target.value);
-                                  const purchasedAcres = landParcels.filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0);
+                                  const purchasedAcres = (landParcels || []).filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0);
                                   if (purchasedAcres > 0 && totalDesired >= 0) {
                                     const pricePerAcre = Math.round(totalDesired / purchasedAcres);
                                     const updated = landParcels.map(p => ({
@@ -3888,7 +4237,7 @@ export default function App() {
                                   }
                                 }}
                               />
-                              <span className="text-sm text-gray-600 self-center">÷ {landParcels.filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0)} acres</span>
+                              <span className="text-sm text-gray-600 self-center">÷ {(landParcels || []).filter(p => !p.isDonated).reduce((sum, p) => sum + p.acres, 0)} acres</span>
                             </div>
                           </div>
                           {landParcels.map((parcel, index) => (
@@ -3897,6 +4246,7 @@ export default function App() {
                                 type="text"
                                 value={parcel.name}
                                 onChange={(e) => {
+                                  if (!landParcels) return;
                                   const updated = [...landParcels];
                                   updated[index].name = e.target.value;
                                   setLandParcels(updated);
@@ -3908,6 +4258,7 @@ export default function App() {
                                 type="number"
                                 value={parcel.acres}
                                 onChange={(e) => {
+                                  if (!landParcels) return;
                                   const updated = [...landParcels];
                                   updated[index].acres = Number(e.target.value);
                                   setLandParcels(updated);
@@ -3920,6 +4271,7 @@ export default function App() {
                                 type="number"
                                 value={parcel.pricePerAcre}
                                 onChange={(e) => {
+                                  if (!landParcels) return;
                                   const updated = [...landParcels];
                                   updated[index].pricePerAcre = Number(e.target.value);
                                   setLandParcels(updated);
@@ -3934,6 +4286,7 @@ export default function App() {
                                   type="checkbox"
                                   checked={parcel.isDonated}
                                   onChange={(e) => {
+                                    if (!landParcels) return;
                                     const updated = [...landParcels];
                                     updated[index].isDonated = e.target.checked;
                                     if (e.target.checked) {
@@ -3957,9 +4310,9 @@ export default function App() {
                           ))}
                           <button
                             onClick={() => {
-                              setLandParcels([...landParcels, {
+                              setLandParcels([...(landParcels || []), {
                                 id: Date.now(),
-                                name: `Parcel ${landParcels.length + 1}`,
+                                name: `Parcel ${(landParcels || []).length + 1}`,
                                 acres: 0,
                                 pricePerAcre: 0,
                                 isDonated: false
@@ -5556,71 +5909,21 @@ export default function App() {
                       </div>
 
                       {/* Ground Lease */}
-                      <div className="mb-4 p-4 border rounded-lg bg-gray-50">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="font-medium">Ground Lease</h4>
-                          <label className="flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={cottonwoodHeights.groundLease.enabled}
-                              onChange={(e) => setCottonwoodHeights({
-                                ...cottonwoodHeights,
-                                groundLease: { ...cottonwoodHeights.groundLease, enabled: e.target.checked }
-                              })}
-                              className="mr-2"
-                            />
-                            <span className="text-sm">Enabled</span>
-                          </label>
-                        </div>
-                        {cottonwoodHeights.groundLease.enabled && (
-                          <div className="space-y-4">
-                            <div className="flex items-center gap-4">
-                              <label className="flex items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={cottonwoodHeights.groundLease.percentRentOnly}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    groundLease: { ...cottonwoodHeights.groundLease, percentRentOnly: e.target.checked }
-                                  })}
-                                  className="mr-2"
-                                />
-                                <span className="text-sm">100% Percentage Rent (no base rent)</span>
-                              </label>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              {!cottonwoodHeights.groundLease.percentRentOnly && (
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-1">Annual Base Rent</label>
-                                  <input
-                                    type="number"
-                                    value={cottonwoodHeights.groundLease.baseRent}
-                                    onChange={(e) => setCottonwoodHeights({
-                                      ...cottonwoodHeights,
-                                      groundLease: { ...cottonwoodHeights.groundLease, baseRent: Number(e.target.value) }
-                                    })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                  />
-                                </div>
-                              )}
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage of Revenue (%)</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.groundLease.percentRent}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    groundLease: { ...cottonwoodHeights.groundLease, percentRent: Math.min(10, Number(e.target.value)) }
-                                  })}
-                                  max="10"
-                                  step="0.5"
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <GroundLeaseSection
+                        groundLease={cottonwoodHeights.groundLease}
+                        onChange={(groundLease) => setCottonwoodHeights({
+                          ...cottonwoodHeights,
+                          groundLease
+                        })}
+                        projectedRevenue={calculateCashFlows?.cashFlows?.[1]?.grossRevenue || 0}
+                        projectedNOI={calculateCashFlows?.cashFlows?.[1]?.noi || 0}
+                      />
+
+                      {/* State Funding */}
+                      <StateFundingSection
+                        funding={cottonwoodStateFunding}
+                        onChange={setCottonwoodStateFunding}
+                      />
 
                       {/* Commercial Components */}
                       <div>
@@ -6136,10 +6439,10 @@ export default function App() {
                                 <label className="block text-sm font-medium text-gray-700 mb-1">OpEx/Unit/Year</label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.townhomes.opex}
+                                  value={cottonwoodHeights.townhomes.opexPerUnit}
                                   onChange={(e) => setCottonwoodHeights({
                                     ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, opex: Number(e.target.value) }
+                                    townhomes: { ...cottonwoodHeights.townhomes, opexPerUnit: Number(e.target.value) }
                                   })}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                 />
@@ -6423,10 +6726,15 @@ export default function App() {
                                 </label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.tif.captureRate}
+                                  value={cottonwoodHeights.tif.commercial.captureRate}
                                   onChange={(e) => setCottonwoodHeights({
                                     ...cottonwoodHeights,
-                                    tif: { ...cottonwoodHeights.tif, captureRate: Number(e.target.value) }
+                                    tif: { 
+                                      ...cottonwoodHeights.tif, 
+                                      commercial: { ...cottonwoodHeights.tif.commercial, captureRate: Number(e.target.value) },
+                                      grocery: { ...cottonwoodHeights.tif.grocery, captureRate: Number(e.target.value) },
+                                      residential: { ...cottonwoodHeights.tif.residential, captureRate: Number(e.target.value) }
+                                    }
                                   })}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                 />
@@ -6435,10 +6743,13 @@ export default function App() {
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Term (Years)</label>
                                 <input
                                   type="number"
-                                  value={cottonwoodHeights.tif.term}
+                                  value={cottonwoodHeights.tif.commercial.term}
                                   onChange={(e) => setCottonwoodHeights({
                                     ...cottonwoodHeights,
-                                    tif: { ...cottonwoodHeights.tif, term: Number(e.target.value) }
+                                    tif: { 
+                                      ...cottonwoodHeights.tif, 
+                                      commercial: { ...cottonwoodHeights.tif.commercial, term: Number(e.target.value) }
+                                    }
                                   })}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                 />
@@ -6447,79 +6758,14 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Public Financing */}
-                        <div className="p-4 border rounded-lg">
-                          <h4 className="font-medium mb-3">Public Financing Sources</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Tax-Exempt Bonds</label>
-                              <input
-                                type="number"
-                                value={cottonwoodHeights.publicFinancing.taxExemptBonds}
-                                onChange={(e) => setCottonwoodHeights({
-                                  ...cottonwoodHeights,
-                                  publicFinancing: { 
-                                    ...cottonwoodHeights.publicFinancing, 
-                                    taxExemptBonds: Number(e.target.value) 
-                                  }
-                                })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Grants</label>
-                              <input
-                                type="number"
-                                value={cottonwoodHeights.publicFinancing.grants}
-                                onChange={(e) => setCottonwoodHeights({
-                                  ...cottonwoodHeights,
-                                  publicFinancing: { 
-                                    ...cottonwoodHeights.publicFinancing, 
-                                    grants: Number(e.target.value) 
-                                  }
-                                })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Land Contribution</label>
-                              <input
-                                type="number"
-                                value={cottonwoodHeights.publicFinancing.landContribution}
-                                onChange={(e) => setCottonwoodHeights({
-                                  ...cottonwoodHeights,
-                                  publicFinancing: { 
-                                    ...cottonwoodHeights.publicFinancing, 
-                                    landContribution: Number(e.target.value) 
-                                  }
-                                })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Infrastructure Contribution</label>
-                              <input
-                                type="number"
-                                value={cottonwoodHeights.publicFinancing.infrastructureContribution}
-                                onChange={(e) => setCottonwoodHeights({
-                                  ...cottonwoodHeights,
-                                  publicFinancing: { 
-                                    ...cottonwoodHeights.publicFinancing, 
-                                    infrastructureContribution: Number(e.target.value) 
-                                  }
-                                })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                              />
-                            </div>
-                          </div>
-                        </div>
+                        {/* Public Financing - replaced by StateFundingSection */}
 
                         {/* Cross-Subsidization Summary */}
                         <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
                           <h4 className="font-medium text-yellow-900 mb-2">Cross-Subsidization Analysis</h4>
                           <div className="text-sm text-yellow-800 space-y-1">
-                            <p>• Commercial components subsidize affordable housing through higher returns</p>
-                            <p>• TIF revenues support public infrastructure and affordable housing</p>
+                            <p>• Commercial components subsidize market rate housing through higher returns</p>
+                            <p>• TIF revenues support public infrastructure and market rate housing</p>
                             <p>• Mixed-use density allows for efficient land use and shared parking</p>
                           </div>
                         </div>
@@ -6569,11 +6815,7 @@ export default function App() {
                         Land: {formatCurrency(calculateLandCost)} + Hard/Soft: {formatCurrency(calculateTotalCost.total - calculateLandCost - calculateTotalCost.developerFee)} + Dev Fee ({softCosts.developerFee}%): {formatCurrency(calculateTotalCost.developerFee)}
                       </div>
                     )}
-                    {propertyType === "cottonwoodHeights" && (cottonwoodHeights.publicFinancing.landContribution > 0 || cottonwoodHeights.publicFinancing.infrastructureContribution > 0) && (
-                      <div className="text-xs text-indigo-600 mt-1">
-                        Public contributions: -${((cottonwoodHeights.publicFinancing.landContribution + cottonwoodHeights.publicFinancing.infrastructureContribution) / 1000000).toFixed(1)}M applied to hard costs
-                      </div>
-                    )}
+                    {/* Public financing display - replaced by StateFundingSection */}
                   </div>
                   <span className="text-lg font-bold text-purple-600">
                     {formatCurrency(calculateTotalCost.total)}
@@ -6641,6 +6883,24 @@ export default function App() {
                     </div>
                   </>
                 )}
+              </div>
+              
+              {/* Settings Toggle */}
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showWaterfallSection}
+                      onChange={(e) => setShowWaterfallSection(e.target.checked)}
+                      className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Show Waterfall Distribution
+                    </span>
+                  </label>
+                  <InfoTooltip content="Toggle to show/hide the waterfall distribution analysis section" />
+                </div>
               </div>
             </div>
 
@@ -6868,7 +7128,11 @@ export default function App() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-600">Base Assessed Value</span>
                     <span className="text-lg font-semibold">
-                      {formatCurrency(cottonwoodHeights.tif.baseAssessedValue)}
+                      {formatCurrency(
+                        cottonwoodHeights.tif.commercial.baseAssessedValue +
+                        cottonwoodHeights.tif.grocery.baseAssessedValue +
+                        cottonwoodHeights.tif.residential.baseAssessedValue
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -6917,9 +7181,9 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Affordable Housing NOI</span>
-                    <span className="text-lg font-semibold text-red-600">
-                      {formatCurrency(calculateCrossSubsidy.affordableNOI)}
+                    <span className="text-sm text-gray-600">Townhome NOI</span>
+                    <span className="text-lg font-semibold text-blue-600">
+                      {formatCurrency(calculateCrossSubsidy.marketRateNOI)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
@@ -6935,69 +7199,177 @@ export default function App() {
         </div>
 
         {/* Cash Flow Analysis */}
-        <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-xl font-semibold mb-4">Cash Flow Projection</h2>
-          <div className="h-96">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={cashFlowChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" />
-                <YAxis
-                  tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`}
-                />
-                <Tooltip
-                  formatter={(value) => formatCurrency(value as number)}
-                />
-                <Legend />
-                <Bar dataKey="noi" fill="#10B981" name="NOI" />
-                <Bar dataKey="cashFlow" fill="#3B82F6" name="Cash Flow" />
-                <Bar dataKey="refinanceProceeds" fill="#F59E0B" name="Refinance Proceeds" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Waterfall Distribution */}
         <div className="mt-6 bg-white rounded-lg shadow-sm">
           <div
             className="p-6 cursor-pointer hover:bg-gray-50"
-            onClick={() => toggleSection('waterfall')}
+            onClick={() => toggleSection('cashflow')}
           >
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Users className="w-6 h-6 text-purple-600" />
-                Waterfall Distribution
+                <BarChartIcon className="w-6 h-6 text-blue-600" />
+                Cash Flow Projection
               </h2>
-              {expandedSections.waterfall ? (
+              {expandedSections.cashflow ? (
                 <ChevronDown className="w-5 h-5 text-gray-500" />
               ) : (
                 <ChevronRight className="w-5 h-5 text-gray-500" />
               )}
             </div>
             <p className="text-sm text-gray-600 mt-1">
-              Partnership waterfall structure with sponsor promote fees
+              Annual cash flow projections with detailed breakdown by year
             </p>
           </div>
           
-          {expandedSections.waterfall && (
+          {expandedSections.cashflow && (
             <div className="p-6 pt-0">
-              <WaterfallDistribution
-                totalDistributions={calculateCashFlows?.cashFlows?.reduce((sum, cf) => 
-                  sum + (cf.cashFlow || 0), 0) || 0}
-                initialEquity={Math.abs(calculateCashFlows?.cashFlows?.[0]?.cashFlow || 0)}
-                preferredReturn={equityStructure.preferredReturn}
-                sponsorPromote={equityStructure.sponsorPromote}
-                setSponsorPromote={(value) => setEquityStructure({
-                  ...equityStructure,
-                  sponsorPromote: value
-                })}
-                waterfallTiers={waterfallTiers}
-                setWaterfallTiers={setWaterfallTiers}
-                equityStructure={equityStructure}
-              />
+              <div className="mb-6">
+                <div className="h-96">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={cashFlowChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis
+                        tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`}
+                      />
+                      <Tooltip
+                        formatter={(value) => formatCurrency(value as number)}
+                      />
+                      <Legend />
+                      <Bar dataKey="noi" fill="#10B981" name="NOI" />
+                      <Bar dataKey="cashFlow" fill="#3B82F6" name="Cash Flow" />
+                      <Bar dataKey="refinanceProceeds" fill="#F59E0B" name="Refinance Proceeds" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              
+              {/* Detailed Cash Flow Table */}
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold mb-3">Detailed Cash Flow by Year</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-2">Year</th>
+                        <th className="text-right py-2 px-2">Revenue</th>
+                        <th className="text-right py-2 px-2">Expenses</th>
+                        <th className="text-right py-2 px-2">NOI</th>
+                        {propertyType === "cottonwoodHeights" && (
+                          <>
+                            <th className="text-right py-2 px-2">TIF</th>
+                            <th className="text-right py-2 px-2">Ground Lease</th>
+                            <th className="text-right py-2 px-2">State Funding</th>
+                          </>
+                        )}
+                        <th className="text-right py-2 px-2">Debt Service</th>
+                        <th className="text-right py-2 px-2">Cash Flow</th>
+                        <th className="text-right py-2 px-2">Cumulative</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {calculateCashFlows?.cashFlows?.map((cf, index) => (
+                        <tr key={index} className="border-b hover:bg-gray-50">
+                          <td className="py-2 px-2 font-medium">{cf.year}</td>
+                          <td className="text-right py-2 px-2">
+                            {formatCurrency(cf.rent || cf.grossRevenue || 0)}
+                          </td>
+                          <td className="text-right py-2 px-2">
+                            {formatCurrency(cf.expenses || cf.operatingExpenses || 0)}
+                          </td>
+                          <td className="text-right py-2 px-2 font-medium text-green-600">
+                            {formatCurrency(cf.noi || 0)}
+                          </td>
+                          {propertyType === "cottonwoodHeights" && (
+                            <>
+                              <td className="text-right py-2 px-2 text-purple-600">
+                                {formatCurrency(cf.tifRevenue || 0)}
+                              </td>
+                              <td className="text-right py-2 px-2 text-orange-600">
+                                {formatCurrency(cf.groundLeasePayment || 0)}
+                              </td>
+                              <td className="text-right py-2 px-2 text-indigo-600">
+                                {formatCurrency(cf.stateFunding || 0)}
+                              </td>
+                            </>
+                          )}
+                          <td className="text-right py-2 px-2">
+                            {formatCurrency(cf.debtService || 0)}
+                          </td>
+                          <td className="text-right py-2 px-2 font-medium text-blue-600">
+                            {formatCurrency(cf.cashFlow || 0)}
+                          </td>
+                          <td className="text-right py-2 px-2 font-bold">
+                            {formatCurrency(cf.cumulativeCashFlow || 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </div>
+
+        {/* Waterfall Distribution */}
+        {showWaterfallSection && (propertyType !== "cottonwoodHeights" || cottonwoodEquity.waterfallEnabled) && (
+          <div className="mt-6 bg-white rounded-lg shadow-sm">
+            <div
+              className="p-6 cursor-pointer hover:bg-gray-50"
+              onClick={() => toggleSection('waterfall')}
+            >
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <Users className="w-6 h-6 text-purple-600" />
+                  Waterfall Distribution
+                </h2>
+                {expandedSections.waterfall ? (
+                  <ChevronDown className="w-5 h-5 text-gray-500" />
+                ) : (
+                  <ChevronRight className="w-5 h-5 text-gray-500" />
+                )}
+              </div>
+              <p className="text-sm text-gray-600 mt-1">
+                Partnership waterfall structure with sponsor promote fees
+              </p>
+            </div>
+            
+            {expandedSections.waterfall && (
+              <div className="p-6 pt-0">
+                {propertyType === "cottonwoodHeights" && (
+                  <div className="mb-4 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={cottonwoodEquity.waterfallEnabled}
+                      onChange={(e) => setCottonwoodEquity({
+                        ...cottonwoodEquity,
+                        waterfallEnabled: e.target.checked
+                      })}
+                      className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
+                    />
+                    <label className="text-sm font-medium text-gray-700">
+                      Enable Waterfall Distribution
+                    </label>
+                  </div>
+                )}
+                <WaterfallDistribution
+                  totalDistributions={calculateCashFlows?.cashFlows?.reduce((sum, cf) => 
+                    sum + (cf.cashFlow || 0), 0) || 0}
+                  initialEquity={Math.abs(calculateCashFlows?.cashFlows?.[0]?.cashFlow || 0)}
+                  preferredReturn={equityStructure.preferredReturn}
+                  sponsorPromote={equityStructure.sponsorPromote}
+                  setSponsorPromote={(value) => setEquityStructure({
+                    ...equityStructure,
+                    sponsorPromote: value
+                  })}
+                  waterfallTiers={waterfallTiers}
+                  setWaterfallTiers={setWaterfallTiers}
+                  equityStructure={equityStructure}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Sensitivity Analysis */}
         <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
@@ -7160,7 +7532,7 @@ export default function App() {
               </ResponsiveContainer>
             </div>
             <div className="mt-4 text-sm text-gray-600">
-              <p>This chart shows TIF revenue projections over the {cottonwoodHeights.tif.term}-year term.</p>
+              <p>This chart shows TIF revenue projections over the {cottonwoodHeights.tif.commercial.term}-year term.</p>
               <p>NPV calculated at 5% discount rate. Values update automatically as you change inputs.</p>
             </div>
           </div>
