@@ -59,6 +59,15 @@ export interface TownhomeComponent {
   opexPerUnit: number;
   annualRentGrowth: number;
   operatingExpenseRatio: number;
+  unitMatrix?: Array<{
+    id: string;
+    name: string;
+    bedrooms: number;
+    bathrooms: number;
+    squareFootage: number;
+    units: number;
+    monthlyRent: number;
+  }>;
 }
 
 export interface ParkingStructureComponent {
@@ -69,6 +78,19 @@ export interface ParkingStructureComponent {
   surfaceCostPerSpace: number;
   monthlyRevenue: number;
   utilizationRate: number;
+  assignments: {
+    retail: ParkingAssignment;
+    medicalOffice: ParkingAssignment;
+    grocery: ParkingAssignment;
+    townhomes: ParkingAssignment;
+    visitor: ParkingAssignment;
+  };
+}
+
+export interface ParkingAssignment {
+  requiredSpaces: number;
+  surfaceSpaces: number;
+  structuredSpaces: number;
 }
 
 export interface AmphitheaterComponent {

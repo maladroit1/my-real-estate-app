@@ -157,10 +157,21 @@ export class CottonwoodCashFlowCalculator {
     
     // Apply rent growth
     const rentGrowthFactor = Math.pow(1 + component.annualRentGrowth / 100, year - 1);
-    const currentRent = component.rentPerUnit * rentGrowthFactor;
     
-    // Calculate revenue
-    const potentialRevenue = component.units * currentRent * 12;
+    // Calculate revenue based on unit matrix if available
+    let potentialRevenue: number;
+    if (component.unitMatrix && component.unitMatrix.length > 0) {
+      // Use detailed unit matrix calculation
+      potentialRevenue = component.unitMatrix.reduce((total, unitType) => {
+        const adjustedRent = unitType.monthlyRent * rentGrowthFactor;
+        return total + (unitType.units * adjustedRent * 12);
+      }, 0);
+    } else {
+      // Fall back to aggregate calculation
+      const currentRent = component.rentPerUnit * rentGrowthFactor;
+      potentialRevenue = component.units * currentRent * 12;
+    }
+    
     const effectiveRevenue = potentialRevenue * (1 - component.vacancy / 100);
     
     // Calculate expenses
@@ -179,7 +190,11 @@ export class CottonwoodCashFlowCalculator {
       return { revenue: 0, expenses: 0, noi: 0 };
     }
     
-    const totalSpaces = component.structuredSpaces + component.surfaceSpaces;
+    // Calculate total spaces from assignments
+    const totalSurfaceSpaces = Object.values(component.assignments).reduce((sum, comp) => sum + comp.surfaceSpaces, 0);
+    const totalStructuredSpaces = Object.values(component.assignments).reduce((sum, comp) => sum + comp.structuredSpaces, 0);
+    const totalSpaces = totalSurfaceSpaces + totalStructuredSpaces;
+    
     const revenueGeneratingSpaces = totalSpaces * (component.utilizationRate / 100);
     const annualRevenue = revenueGeneratingSpaces * component.monthlyRevenue * 12;
     

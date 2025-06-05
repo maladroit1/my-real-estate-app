@@ -50,6 +50,7 @@ import { OnyxLogo } from "./components/OnyxLogo";
 import { AIInsightsIntegration } from "./components/AIInsightsIntegration";
 import { GroundLeaseSection } from "./components/GroundLeaseSection";
 import { StateFundingSection } from "./components/StateFundingSection";
+import { UnitMatrix, UnitType } from "./components/UnitMatrix";
 import { 
   GroundLeaseStructure, 
   StateFundingStructure,
@@ -403,6 +404,13 @@ export default function App() {
     { id: 3, name: "Parcel 3", acres: 5, pricePerAcre: 0, isDonated: true },
   ]);
 
+  // Cottonwood Heights Site Work
+  const [cottonwoodSiteWork, setCottonwoodSiteWork] = useState({
+    totalCost: 1500000,
+    includedItems: ['Grading and excavation', 'Utilities infrastructure', 'Street improvements', 'Landscaping allowance'],
+    notes: ''
+  });
+
   // Cottonwood Heights Mixed-Use Specific
   const [cottonwoodHeights, setCottonwoodHeights] = useState({
     // Ground Lease Structure
@@ -492,6 +500,7 @@ export default function App() {
       opexPerUnit: 7500, // per unit per year
       annualRentGrowth: 3,
       operatingExpenseRatio: 40, // % of effective gross income
+      unitMatrix: [] as UnitType[], // Unit mix details
     },
     // Parking Structure
     parking: {
@@ -502,6 +511,34 @@ export default function App() {
       surfaceCostPerSpace: 5000,
       monthlyRevenue: 75, // per space for paid parking
       utilizationRate: 60, // % of spaces generating revenue
+      // Parking assignments by component
+      assignments: {
+        retail: {
+          requiredSpaces: 60,
+          surfaceSpaces: 60,
+          structuredSpaces: 0,
+        },
+        medicalOffice: {
+          requiredSpaces: 432,
+          surfaceSpaces: 100,
+          structuredSpaces: 332,
+        },
+        grocery: {
+          requiredSpaces: 80,
+          surfaceSpaces: 40,
+          structuredSpaces: 40,
+        },
+        townhomes: {
+          requiredSpaces: 156,
+          surfaceSpaces: 0,
+          structuredSpaces: 156,
+        },
+        visitor: {
+          requiredSpaces: 50,
+          surfaceSpaces: 0,
+          structuredSpaces: 50,
+        },
+      },
     },
     // Community Amphitheater
     amphitheater: {
@@ -997,13 +1034,16 @@ export default function App() {
           townhomeCost = townhomeSF * cottonwoodHeights.townhomes.hardCostPSF;
         }
         
-        // Parking Structure costs (dedicated structure beyond retail/medical needs)
+        // Parking Structure costs (using new assignment system)
         if (cottonwoodHeights.parking.enabled) {
-          // Structured parking
-          const structuredParkingCost = cottonwoodHeights.parking.structuredSpaces * cottonwoodHeights.parking.structuredCostPerSpace;
-          // Surface parking
-          const surfaceParkingCost = cottonwoodHeights.parking.surfaceSpaces * cottonwoodHeights.parking.surfaceCostPerSpace;
-          parkingCost += structuredParkingCost + surfaceParkingCost;
+          // Calculate total surface and structured spaces from assignments
+          const totalSurfaceSpaces = Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.surfaceSpaces, 0);
+          const totalStructuredSpaces = Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.structuredSpaces, 0);
+          
+          // Calculate costs
+          const structuredParkingCost = totalStructuredSpaces * cottonwoodHeights.parking.structuredCostPerSpace;
+          const surfaceParkingCost = totalSurfaceSpaces * cottonwoodHeights.parking.surfaceCostPerSpace;
+          parkingCost = structuredParkingCost + surfaceParkingCost;
         }
         
         // Community Amphitheater
@@ -1012,7 +1052,7 @@ export default function App() {
         }
         
         // Site work and landscaping
-        const siteWorkCost = hardCosts.siteWork;
+        const siteWorkCost = cottonwoodSiteWork.totalCost;
         const landscapingCost = hardCosts.landscapingEnabled ? hardCosts.landscaping * siteAreaSF : 0;
         
         // Calculate base hard cost total
@@ -2570,12 +2610,12 @@ export default function App() {
           
           hardCostBreakdown = {
             'Building Construction': (hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF,
-            'Site Work': hardCosts.siteWork,
+            'Site Work': cottonwoodSiteWork.totalCost,
             'Structured Parking': parkingSpacesNeeded * hardCosts.parkingStructured,
             'Landscaping': hardCosts.landscaping * siteAreaSF,
             // 'Public Land Contribution': -cottonwoodHeights.publicFinancing.landContribution,
             // 'Public Infrastructure Contribution': -cottonwoodHeights.publicFinancing.infrastructureContribution,
-            'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + hardCosts.siteWork + parkingSpacesNeeded * hardCosts.parkingStructured + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
+            'Contingency': ((hardCosts.coreShell + hardCosts.tenantImprovements) * totalBuildingSF + cottonwoodSiteWork.totalCost + parkingSpacesNeeded * hardCosts.parkingStructured + hardCosts.landscaping * siteAreaSF) * (hardCosts.contingency / 100)
           };
         } else if (propertyType === 'forSale') {
           // Use unit mix for unit count
@@ -4322,6 +4362,51 @@ export default function App() {
                           >
                             + Add Parcel
                           </button>
+                        </div>
+                        
+                        {/* Site Work for Cottonwood Heights */}
+                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                          <h4 className="font-medium text-gray-900 mb-3">Site Work & Infrastructure</h4>
+                          <div className="grid grid-cols-1 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Total Site Work Cost
+                              </label>
+                              <input
+                                type="number"
+                                value={cottonwoodSiteWork.totalCost}
+                                onChange={(e) => setCottonwoodSiteWork({
+                                  ...cottonwoodSiteWork,
+                                  totalCost: Number(e.target.value)
+                                })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                step="10000"
+                              />
+                              <div className="mt-2 text-xs text-gray-600">
+                                <div className="font-medium mb-1">Typically includes:</div>
+                                <ul className="list-disc list-inside space-y-1">
+                                  {cottonwoodSiteWork.includedItems.map((item, idx) => (
+                                    <li key={idx}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Notes
+                              </label>
+                              <textarea
+                                value={cottonwoodSiteWork.notes}
+                                onChange={(e) => setCottonwoodSiteWork({
+                                  ...cottonwoodSiteWork,
+                                  notes: e.target.value
+                                })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                rows={2}
+                                placeholder="Additional site work details or assumptions..."
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -6374,83 +6459,548 @@ export default function App() {
                             </label>
                           </div>
                           {cottonwoodHeights.townhomes.enabled && (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.townhomes.units}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, units: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            <>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.townhomes.units}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { ...cottonwoodHeights.townhomes, units: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Avg Size (SF)</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.townhomes.avgSize}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { ...cottonwoodHeights.townhomes, avgSize: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Rent/Unit</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.townhomes.rentPerUnit}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { ...cottonwoodHeights.townhomes, rentPerUnit: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Hard Cost/SF</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.townhomes.hardCostPSF}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { ...cottonwoodHeights.townhomes, hardCostPSF: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Vacancy %</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.townhomes.vacancy}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { ...cottonwoodHeights.townhomes, vacancy: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">OpEx/Unit/Year</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.townhomes.opexPerUnit}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { ...cottonwoodHeights.townhomes, opexPerUnit: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                              </div>
+                              
+                              {/* Unit Matrix */}
+                              <div className="mt-4">
+                                <UnitMatrix
+                                  unitTypes={cottonwoodHeights.townhomes.unitMatrix}
+                                  onChange={(unitTypes) => {
+                                    // Calculate aggregated values from unit matrix
+                                    const totalUnits = unitTypes.reduce((sum, unit) => sum + unit.units, 0);
+                                    const totalSF = unitTypes.reduce((sum, unit) => sum + (unit.units * unit.squareFootage), 0);
+                                    const avgSize = totalUnits > 0 ? Math.round(totalSF / totalUnits) : 0;
+                                    const weightedAvgRent = totalUnits > 0 
+                                      ? unitTypes.reduce((sum, unit) => sum + (unit.units * unit.monthlyRent), 0) / totalUnits 
+                                      : 0;
+                                    
+                                    setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      townhomes: { 
+                                        ...cottonwoodHeights.townhomes, 
+                                        unitMatrix: unitTypes,
+                                        units: totalUnits,
+                                        avgSize: avgSize,
+                                        rentPerUnit: Math.round(weightedAvgRent)
+                                      }
+                                    });
+                                  }}
+                                  className="bg-gray-50 p-4 rounded-lg"
                                 />
                               </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Avg Size (SF)</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.townhomes.avgSize}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, avgSize: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+                            </>
+                          )}
+                        </div>
+
+                      </div>
+
+                      {/* Parking Assignments */}
+                      <div>
+                        <h3 className="font-medium text-gray-900 mb-3">Parking Assignments</h3>
+                        
+                        <div className="mb-4 p-4 border rounded-lg">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-medium">Parking Structure</h4>
+                            <label className="flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={cottonwoodHeights.parking.enabled}
+                                onChange={(e) => setCottonwoodHeights({
+                                  ...cottonwoodHeights,
+                                  parking: { ...cottonwoodHeights.parking, enabled: e.target.checked }
+                                })}
+                                className="mr-2"
+                              />
+                              <span className="text-sm">Enabled</span>
+                            </label>
+                          </div>
+                          
+                          {cottonwoodHeights.parking.enabled && (
+                            <div className="space-y-4">
+                              {/* Parking cost inputs */}
+                              <div className="grid grid-cols-2 gap-4 mb-4 p-3 bg-gray-50 rounded">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Surface Cost/Space</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.parking.surfaceCostPerSpace}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      parking: { ...cottonwoodHeights.parking, surfaceCostPerSpace: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Structured Cost/Space</label>
+                                  <input
+                                    type="number"
+                                    value={cottonwoodHeights.parking.structuredCostPerSpace}
+                                    onChange={(e) => setCottonwoodHeights({
+                                      ...cottonwoodHeights,
+                                      parking: { ...cottonwoodHeights.parking, structuredCostPerSpace: Number(e.target.value) }
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                  />
+                                </div>
                               </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Rent/Unit</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.townhomes.rentPerUnit}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, rentPerUnit: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+
+                              {/* Component parking assignments */}
+                              <div className="space-y-3">
+                                <h5 className="text-sm font-medium text-gray-700">Parking Assignments by Component</h5>
+                                
+                                {/* Retail Parking */}
+                                {cottonwoodHeights.retail.enabled && (
+                                  <div className="p-3 bg-blue-50 rounded-lg">
+                                    <h6 className="font-medium text-sm mb-2">Retail Parking</h6>
+                                    <div className="grid grid-cols-3 gap-3">
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Required Spaces</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.retail.requiredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                retail: { ...cottonwoodHeights.parking.assignments.retail, requiredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Surface</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.retail.surfaceSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                retail: { ...cottonwoodHeights.parking.assignments.retail, surfaceSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Structured</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.retail.structuredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                retail: { ...cottonwoodHeights.parking.assignments.retail, structuredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Medical Office Parking */}
+                                {cottonwoodHeights.medicalOffice.enabled && (
+                                  <div className="p-3 bg-green-50 rounded-lg">
+                                    <h6 className="font-medium text-sm mb-2">Medical Office Parking</h6>
+                                    <div className="grid grid-cols-3 gap-3">
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Required Spaces</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.medicalOffice.requiredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                medicalOffice: { ...cottonwoodHeights.parking.assignments.medicalOffice, requiredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Surface</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.medicalOffice.surfaceSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                medicalOffice: { ...cottonwoodHeights.parking.assignments.medicalOffice, surfaceSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Structured</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.medicalOffice.structuredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                medicalOffice: { ...cottonwoodHeights.parking.assignments.medicalOffice, structuredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Grocery Parking */}
+                                {cottonwoodHeights.grocery.enabled && (
+                                  <div className="p-3 bg-orange-50 rounded-lg">
+                                    <h6 className="font-medium text-sm mb-2">Grocery Parking</h6>
+                                    <div className="grid grid-cols-3 gap-3">
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Required Spaces</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.grocery.requiredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                grocery: { ...cottonwoodHeights.parking.assignments.grocery, requiredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Surface</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.grocery.surfaceSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                grocery: { ...cottonwoodHeights.parking.assignments.grocery, surfaceSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Structured</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.grocery.structuredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                grocery: { ...cottonwoodHeights.parking.assignments.grocery, structuredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Townhomes Parking */}
+                                {cottonwoodHeights.townhomes.enabled && (
+                                  <div className="p-3 bg-purple-50 rounded-lg">
+                                    <h6 className="font-medium text-sm mb-2">Townhomes Parking</h6>
+                                    <div className="grid grid-cols-3 gap-3">
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Required Spaces</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.townhomes.requiredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                townhomes: { ...cottonwoodHeights.parking.assignments.townhomes, requiredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Surface</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.townhomes.surfaceSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                townhomes: { ...cottonwoodHeights.parking.assignments.townhomes, surfaceSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-1">Structured</label>
+                                        <input
+                                          type="number"
+                                          value={cottonwoodHeights.parking.assignments.townhomes.structuredSpaces}
+                                          onChange={(e) => setCottonwoodHeights({
+                                            ...cottonwoodHeights,
+                                            parking: {
+                                              ...cottonwoodHeights.parking,
+                                              assignments: {
+                                                ...cottonwoodHeights.parking.assignments,
+                                                townhomes: { ...cottonwoodHeights.parking.assignments.townhomes, structuredSpaces: Number(e.target.value) }
+                                              }
+                                            }
+                                          })}
+                                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Visitor Parking */}
+                                <div className="p-3 bg-gray-50 rounded-lg">
+                                  <h6 className="font-medium text-sm mb-2">Visitor/Overflow Parking</h6>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Required Spaces</label>
+                                      <input
+                                        type="number"
+                                        value={cottonwoodHeights.parking.assignments.visitor.requiredSpaces}
+                                        onChange={(e) => setCottonwoodHeights({
+                                          ...cottonwoodHeights,
+                                          parking: {
+                                            ...cottonwoodHeights.parking,
+                                            assignments: {
+                                              ...cottonwoodHeights.parking.assignments,
+                                              visitor: { ...cottonwoodHeights.parking.assignments.visitor, requiredSpaces: Number(e.target.value) }
+                                            }
+                                          }
+                                        })}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Surface</label>
+                                      <input
+                                        type="number"
+                                        value={cottonwoodHeights.parking.assignments.visitor.surfaceSpaces}
+                                        onChange={(e) => setCottonwoodHeights({
+                                          ...cottonwoodHeights,
+                                          parking: {
+                                            ...cottonwoodHeights.parking,
+                                            assignments: {
+                                              ...cottonwoodHeights.parking.assignments,
+                                              visitor: { ...cottonwoodHeights.parking.assignments.visitor, surfaceSpaces: Number(e.target.value) }
+                                            }
+                                          }
+                                        })}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Structured</label>
+                                      <input
+                                        type="number"
+                                        value={cottonwoodHeights.parking.assignments.visitor.structuredSpaces}
+                                        onChange={(e) => setCottonwoodHeights({
+                                          ...cottonwoodHeights,
+                                          parking: {
+                                            ...cottonwoodHeights.parking,
+                                            assignments: {
+                                              ...cottonwoodHeights.parking.assignments,
+                                              visitor: { ...cottonwoodHeights.parking.assignments.visitor, structuredSpaces: Number(e.target.value) }
+                                            }
+                                          }
+                                        })}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Parking Summary */}
+                                <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
+                                  <h6 className="font-medium text-sm mb-2">Parking Summary</h6>
+                                  <div className="grid grid-cols-3 gap-3 text-sm">
+                                    <div>
+                                      <div className="text-gray-600">Total Required:</div>
+                                      <div className="font-medium">
+                                        {Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.requiredSpaces, 0)}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-600">Total Surface:</div>
+                                      <div className="font-medium">
+                                        {Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.surfaceSpaces, 0)}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-600">Total Structured:</div>
+                                      <div className="font-medium">
+                                        {Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.structuredSpaces, 0)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 text-xs text-gray-600">
+                                    Total Cost: ${((Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.surfaceSpaces, 0) * cottonwoodHeights.parking.surfaceCostPerSpace) +
+                                      (Object.values(cottonwoodHeights.parking.assignments).reduce((sum, comp) => sum + comp.structuredSpaces, 0) * cottonwoodHeights.parking.structuredCostPerSpace)).toLocaleString()}
+                                  </div>
+                                </div>
                               </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Hard Cost/SF</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.townhomes.hardCostPSF}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, hardCostPSF: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Vacancy %</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.townhomes.vacancy}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, vacancy: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">OpEx/Unit/Year</label>
-                                <input
-                                  type="number"
-                                  value={cottonwoodHeights.townhomes.opexPerUnit}
-                                  onChange={(e) => setCottonwoodHeights({
-                                    ...cottonwoodHeights,
-                                    townhomes: { ...cottonwoodHeights.townhomes, opexPerUnit: Number(e.target.value) }
-                                  })}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                                />
+
+                              {/* Parking Revenue */}
+                              <div className="mt-4 p-3 bg-gray-50 rounded">
+                                <h5 className="text-sm font-medium text-gray-700 mb-2">Parking Revenue</h5>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Monthly Rate/Space</label>
+                                    <input
+                                      type="number"
+                                      value={cottonwoodHeights.parking.monthlyRevenue}
+                                      onChange={(e) => setCottonwoodHeights({
+                                        ...cottonwoodHeights,
+                                        parking: { ...cottonwoodHeights.parking, monthlyRevenue: Number(e.target.value) }
+                                      })}
+                                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-gray-600 mb-1">Utilization Rate %</label>
+                                    <input
+                                      type="number"
+                                      value={cottonwoodHeights.parking.utilizationRate}
+                                      onChange={(e) => setCottonwoodHeights({
+                                        ...cottonwoodHeights,
+                                        parking: { ...cottonwoodHeights.parking, utilizationRate: Number(e.target.value) }
+                                      })}
+                                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                      min="0"
+                                      max="100"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           )}
                         </div>
-
                       </div>
 
                       {/* Separate Financing */}
